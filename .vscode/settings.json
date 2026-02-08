@@ -1,0 +1,12 @@
+{
+    "C_Cpp.default.compilerPath": "cl.exe",
+    "files.associations": {
+        "iostream": "cpp",
+        "string": "cpp",
+        "xstring": "cpp",
+        "memory": "cpp",
+        "limits": "cpp",
+        "utility": "cpp",
+        "xutility": "cpp"
+    }
+}
