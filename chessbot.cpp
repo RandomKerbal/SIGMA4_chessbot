@@ -9,17 +9,6 @@
 #include <iomanip>
 
 // /**
-//  * occupy
-//  * ├── 0: black
-//  * │   └── coordinates of occupied tiles
-//  * │       0: king (since king is always on board)
-//  * │       1-8: pawn (since capturing a shape with a pawn is usually good -> enables AlphaBeta prunning)
-//  * │
-//  * └── 1: white
-//  *     └── coordinates of occupied tiles
-//  *         0: king (since king is always on board)
-//  *         1-8: pawn (since capturing a shape with a pawn is usually good -> enables AlphaBeta prunning)
-//  */
 // pair<int, int> occupy[2][16] = {
 //     { {3, 0},
 //       {1, 1}, {2, 1}, {3, 1}, {4, 1}, {5, 1}, {6, 1}, {7, 1},
@@ -40,17 +29,26 @@
 // int occupy_end[2] = {16, 16};
 
 /**
+ * The board is stored as a sparse matrix (never store empty tiles or sentinels) for faster child generation.
  * IMPORTANT: the board is 10x8 since the leftmost and rightmost columns are sentinels (.)
  *            that prevent pieces from "wrapping" onto the previous/next row. The playable
  *            area is the center 8x8.
- * The board is stored as a sparse matrix (never store empty tiles or sentinels) for faster child generation.
  * board
- * ├── key: 1D coordinate of tile (0...99)
- * └── value (aka tile):
+ * ├── key: tile index (0...99)
+ * └── val:
  *     ├── lowercase: black, uppercase: white
  *     └── k/K: king, q/Q: queen, r/R: rook, b/B: bishop, n/N: knight, p/P: pawn
+ * tile: key + val
  */
 std::unordered_map<int, char> board;
+
+/**
+ * king_key
+ * ├── 0: black king key
+ * └── 1: white king key
+ */
+int king_key[2] = {5, 75};
+
 const int PLAY_SIZE = 8; // playable size
 const int SIZE = PLAY_SIZE + 2; // playable size + sentinels
 const int PLAY_AREA = PLAY_SIZE*SIZE;
@@ -89,7 +87,7 @@ const int B_VECTOR[4] = {
 };
 // no Q_VECTOR since it's just a combination of R_VECTOR & B_VECTOR
 
-int MAXER = 1, // white
+bool MAXER = 1, // white
     MINER = 0; // black
 
 void init_board()
@@ -113,9 +111,9 @@ void init_board()
  * @return the player occupying the given tile.
  * 0: black player, 1: white player
  */
-inline bool player_of(char tile)
+inline bool player_of(char val)
 {
-    return bool(isupper(tile)); // casted to bool since isupper can return any integer not just 1
+    return bool(isupper(val)); // casted to bool since isupper can return any integer not just 1
 }
 
 /**
@@ -147,20 +145,21 @@ inline int xy_of(int key, bool is_y)
 //     board[y_i][x_i] = ' ';
 // }
 
-inline void move(int key_i, int key_f)
+inline void move(int key_i, char val_i, int key_f, char restore = '\0')
 /// TODO: pawn promotion
 {
-    board[key_f] = board[key_i];
-    board.erase(key_i);    
-}
+    if (val_i == 'k')
+        king_key[0] = key_f; 
 
-inline void unmove(int key_i, int key_f, char captured = 0)
-{
-    board[key_i] = board[key_f];
-    if (!captured)
-        board.erase(key_f);
+    else if (val_i == 'K')
+        king_key[1] = key_f; 
+
+    board[key_f] = val_i;
+
+    if (restore == '\0') // '\0' = no restore since it is the default value set by board[]
+        board.erase(key_i);
     else
-        board[key_f] = captured;
+        board[key_i] = restore;
 }
 
 inline bool is_play_area(int key)
@@ -174,42 +173,19 @@ inline bool is_empty(int key)
     return board.find(key) == board.end();
 }
 
-void out_board()
-{
-    for (std::pair<int, char> pair : board) {
-        std::cout << "[" << pair.first << "] = " << pair.second << "; ";
-    }
-    std::cout << std::endl;
-
-    std::cout << "   +-------------BOT--------------+" << std::endl;
-    for (int key = 0; key < PLAY_AREA; key++)
-    {
-        if (xy_of(key, 0) == 0) // left sentinel
-            std::cout << std::setw(2) << key+1 << " | .";
-
-        else if (xy_of(key, 0) == 9) // right sentinel
-            std::cout << "  . | " << key-1 << std::endl;
-
-        else
-            std::cout << std::setw(3) << ((is_empty(key)) ? ' ' : board[key]);
-    }
-    std::cout << "   +-------------YOU--------------+" << std::endl;
-}
-
 /**
  * IMPORTANT: Must check tile is NOT empty before calling to prevent creating empty tiles!
  * @return whether the given tile has the enemy of the given player && not king.
  */
-inline bool can_capture(bool player, char tile)
+inline bool can_capture(bool player, char val)
 {
-    return player_of(tile) != player && tolower(tile != 'k');
+    return player_of(val) != player && tolower(val != 'k');
 }
 
-std::vector<int> gen_moves(bool player, int key_i)
+std::vector<int> gen_moves(bool player, char shape, int key_i)
 {
     std::vector<int> moves;
     int key = 0;
-    char shape = tolower(board[key_i]);
     
     if (shape == 'k')
     {
@@ -351,55 +327,82 @@ bool is_attacked(bool player, int key_i)
     return 0;
 }
 
-// /**
-//  * Minimax + Depth-adjusted Score + AlphaBeta Prunning
-//  * User Note: In first call, use depth = 0, alpha = INT_MIN, beta = INT_MAX.
-//  */
-// int minimax(bool player, int depth, int alpha, int beta)
+/**
+ * Minimax + Depth-adjusted Score + AlphaBeta Prunning
+ * In first call, use depth = 0, alpha = INT_MIN, beta = INT_MAX.
+ */
+int minimax(bool player, int depth, int alpha, int beta)
 
-// {
-//     int child_score = 0;
+{
+    int child_score = 0;
 
-//     for ...
-//         capture = board[y_f][x_f]
-//         move();
-//         if (!is_attacked(player, king))
-//             // move exists
-//             child_score = minimax(!player, depth+1);
-//             if (player == MAXER)
-//                 alpha = max(alpha, child_score);
-//             else
-//                 beta = min(beta, child_score);
-            
-//             if (beta <= alpha)
-//                 break;
+    for (std::pair<int, char> tile : board)
+    {
+        for (int key_f : gen_moves(player, tolower(tile.second), tile.first))
+        {
+            char capture = board[key_f];
+            move(tile.first, tile.second, key_f);
 
-//     if (child_score == 0) // if move exists, child_score is highly unlikely to = 0 since minimax() returns a number near +/- infinity
-//         if (is_attacked(player, king)) // checkmate
-//             return (player == MAXER) ? INT_MIN + depth : INT_MAX - depth;
+            if (!is_attacked(player, king_key[player]))
+            {
+                child_score = minimax(!player, depth+1, alpha, beta);
+
+                if (player == MAXER)
+                    alpha = std::max(alpha, child_score);
+                else
+                    beta = std::min(beta, child_score);
+                
+                if (beta <= alpha)
+                    break;
+            }
+        }
+    }
+
+    if (child_score == 0) // if no legal move. If move exists, child_score is highly unlikely to = 0 since minimax() returns a number near +/- infinity.
+    {
+        if (is_attacked(player, king_key[player])) // checkmate
+            return (player == MAXER) ? INT_MIN + depth : INT_MAX - depth;
         
-//         // !is_attacked = stalemate
-//         return 0;
+        // !attacked = stalemate
+        return 0;
+    }
     
-//     // not empty
-//     return (player == MAXER) ? alpha : beta;
+    // if has legal move
+    return (player == MAXER) ? alpha : beta;
+}
 
-//     // for (int i = 0; i < occupy_end[player]; i++)
-//     // {
-//     //     int x_i = occupy[player][i].first, y_i = occupy[player][i].second;
+void out_board()
+{
+    for (std::pair<int, char> pair : board) {
+        std::cout << "[" << pair.first << "] = " << pair.second << "; ";
+    }
+    std::cout << std::endl;
 
-//     //     for (pair<int, int> xy_f: gen_moves(player, x_i, y_i))
-//     //     {
-//     //         move(board[y_i][x_i], board[xy_f.second][xy_f.first]);
+    std::cout << "Black king tile: " << king_key[0] << std::endl
+        << "White king tile: " << king_key[1] << std::endl;
 
-//     //         int kx = occupy[player][0].first, ky = occupy[player][0].second; // king x, king y
-//     //         if (is_attacked(player, kx, ky) && )
+    std::cout << "Tile(s) attacked: ";
+    for (std::pair<int, char> tile : board)
+    {
+        if (player_of(tile.second) == 0 && is_attacked(0, tile.first))
+            std::cout << "{ " << tile.first << ", " << tile.second << " }, ";
+    }
+    std::cout << std::endl;
 
-//     //         else
-//     //             recur(!player);
-//     //     }
-//     // }
-// }
+    std::cout << "   +-------------BOT--------------+" << std::endl;
+    for (int key = 0; key < PLAY_AREA; key++)
+    {
+        if (xy_of(key, 0) == 0) // left sentinel
+            std::cout << std::setw(2) << key+1 << " | .";
+
+        else if (xy_of(key, 0) == 9) // right sentinel
+            std::cout << "  . | " << key-1 << std::endl;
+
+        else
+            std::cout << std::setw(3) << ((is_empty(key)) ? ' ' : board[key]);
+    }
+    std::cout << "   +-------------YOU--------------+" << std::endl;
+}
 
 /**
  * @return whether move is valid.
@@ -490,25 +493,18 @@ void console_play()
                 std::cout << "Invalid move, broken rule #" << invalid << '.' << std::endl;
         }
         while (invalid);
-        move(key_i, key_f);
+        move(key_i, board[key_i], key_f);
 
         out_board();
-        std::cout << "Tiles attacked: ";
-        for (std::pair<int, char> pair : board)
+        for (std::pair<int, char> tile : board)
         {
-            if (player_of(pair.second) == 0 && is_attacked(0, pair.first))
-                std::cout << "{ " << pair.first << ", " << pair.second << " }, ";
-        }
-        std::cout << std::endl;
-        for (std::pair<int, char> pair : board)
-        {
-            if (player_of(pair.second) == 0)
+            if (player_of(tile.second) == 0)
             {
-                keys_f = gen_moves(0, pair.first);
+                keys_f = gen_moves(0, tolower(tile.second), tile.first);
                 if (!keys_f.empty())
                 {
-                    move(pair.first, keys_f[0]);
-                    std::cout << "Possible moves from " << pair.first << ": ";
+                    move(tile.first, tile.second, keys_f[0]);
+                    std::cout << "Possible moves from " << tile.first << ": ";
                     for (int key_f : keys_f) {
                         std::cout << key_f << ", ";
                     }
@@ -517,6 +513,7 @@ void console_play()
                 }
             }
         }
+        std::cout << std::endl;
     }
 }
 
