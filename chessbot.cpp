@@ -65,14 +65,14 @@ const int N_VECTOR[8] = {
 const int R_VECTOR[4] = {
     +1,             // right
     -1,             // left
-    +SIZE,          // down
-    -SIZE           // up
+    +SIZE,      // down
+    -SIZE       // up
 };
 const int B_VECTOR[4] = {
-    +1 + SIZE,      // down-right
-    +1 - SIZE,      // up-right
-    -1 + SIZE,      // down-left
-    -1 - SIZE       // up-left
+    +1 + SIZE,  // down-right
+    +1 - SIZE,  // up-right
+    -1 + SIZE,  // down-left
+    -1 - SIZE   // up-left
 };
 // no Q_VECTOR since it's just a combination of R_VECTOR & B_VECTOR
 
