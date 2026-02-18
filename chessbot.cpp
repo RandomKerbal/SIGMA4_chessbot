@@ -15,10 +15,10 @@ const int AREA = PLAY_SIZE*SIZE;
  *            that prevent pointers from "wrapping" onto the previous/next row. The playable
  *            area is the center 8x8.
  * 
- * Sentinel and empty are 0 || '\0' to identify easily using !board[ind].
+ * Sentinel/empty are 0 || '\0' to identify easily using !board[ind].
  * 
  * board
- * ├── columns 0,9's element: sentinels
+ * ├── columns 0,9's element: sentinel
  * └── columns 1-8's element (aka tile):
  *     ├── 0: empty
  *     ├── lowercase: black, uppercase: white
