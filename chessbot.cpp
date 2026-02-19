@@ -1,5 +1,4 @@
 #include <cmath>
-#include <cctype>
 #include <vector>
 #include <climits>
 #include <algorithm>
@@ -8,67 +7,58 @@
 #include <iostream>
 #include <iomanip>
 
-#define shape_of std::tolower
-
-const int PLAY_SIZE = 8; // playable size
-const int SIZE = PLAY_SIZE + 2; // playable size + sentinels
-const int AREA = PLAY_SIZE*SIZE;
+const int KING = 1, KNIGHT = 2, ROOK = 3, BISHOP = 4, QUEEN = 5, PAWN = 6;
+const int PLAY_SIZE = 8, // playable height/width
+    SIZE = PLAY_SIZE + 2, // playable width + sentinels
+    AREA = PLAY_SIZE*SIZE;
 /**
  * IMPORTANT: the board is 10x8 since the two rightmost columns are sentinels
  *            that prevent pointers from "wrapping" onto the previous/next row.
  *            The playable area is the leftmost 8x8.
  * 
- * Sentinel/empty are 0 || '\0' to identify easily using !board[ind]
+ * Sentinel/empty are 0 to identify easily using !board[ind]
  * 
  * board
  * ├── columns 8,9 element: sentinel
  * └── columns 0-8 element (aka tile):
  *     ├── 0: empty
- *     ├── lowercase: black, uppercase: white
- *     └── k/K: king, q/Q: queen, r/R: rook, b/B: bishop, n/N: knight, p/P: pawn
+ *     ├── digit1: 0: black, 1: white
+ *     └── digit2: 1: king, 2: knight, 3: rook, 4: bishop, 5: queen, 6: pawn
  */
-char board[AREA] = {
-    'r','n','b','q','k','b','n','r', 0, 0,
-    'p','p','p','p','p','p','p','p', 0, 0,
-     0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0, 0,
-     0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0, 0,
-     0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0, 0,
-     0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0, 0,
-    'P','P','P','P','P','P','P','P', 0, 0,
-    'R','N','B','Q','K','B','N','R', 0, 0,
+int board[AREA] = {
+     3,  2,  4,  5,  1,  4,  2,  3, 0, 0,
+     6,  6,  6,  6,  6,  6,  6,  6, 0, 0,
+     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
+     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
+     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
+     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
+    16, 16, 16, 16, 16, 16, 16, 16, 0, 0,
+    13, 12, 14, 15, 12, 14, 12, 13, 0, 0,
 };
 
-const int SHAPE_I = 'b'; // 98
-const int SHAPE_F = 'r'; // 114
-const int SHAPE_MAX = SHAPE_F - SHAPE_I + 1;
-const int TILE_MAX = 8;
+const int SHAPE_MAX = 6, IND_MAX = 8;
 /**
  * IMPORTANT: Must call init_tiles() at the start of every program! It starts as empty.
 tiles
 ├── 0: black
-│   ├── k-b || 107-98: black king index
-│   ├── n-b || 110-98: black knight indices
-│   ├── q-b || 113-98: black queen index
-│   ├── r-b || 114-98: black rook indices
-│   └── b-b || 98-98 : black bishop indices
+│   ├── 1: black king index
+│   ├── 2: black knight indices
+│   ├── 3: black rook indices
+│   ├── 4: black bishop indices
+│   ├── 5: black queen index
+│   └── 6: black pawn indices
 │
 └── 1: white
-    ├── k-b || 107-98 : white king index
-    ├── n-b || 110-98 : white knight indices
-    ├── q-b || 113-98 : white queen index
-    ├── r-b || 114-98 : white rook indices
-    └── b-b || 98-98 : white bishop indices
+    ├── 1: white king index
+    ├── 2: white knight indices
+    ├── 3: white rook indices
+    ├── 4: white bishop indices
+    ├── 5: white queen index
+    └── 6: white pawn indices
 
 If a tile is captured, its index becomes -1.
  */
-int tiles[2][SHAPE_MAX][TILE_MAX];
-
-/**
- * tile_count
- * ├── 0: number of tiles occupied by black
- * └── 1: number of tiles occupied by white
- */
-int tile_count[2] = {16, 16};
+int tiles[2][SHAPE_MAX][IND_MAX];
 
 const int K_VECTOR[8] = {
     +1,             // (1, 0)
@@ -104,26 +94,31 @@ const int B_VECTOR[4] = {
 };
 // no Q_VECTOR since it's just a combination of R_VECTOR & B_VECTOR
 
-bool MAXER = 1, // white
+const bool MAXER = 1, // white
     MINER = 0; // black
 const int MAX_DEPTH = 5;
 
 /**
- * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since 0 can = black or empty!
+ * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since return 0 can = black or empty!
  * @return the player occupying the given tile.
  * 0: black player || empty, 1: white player
  */
-inline bool player_of(char tile)
+constexpr bool player_of(int tile)
 {
-    return tile < 'a'; // uppercase letters are ASCII < 'a'
+    return tile/10; // extract digit1
+}
+
+constexpr int shape_of(int tile)
+{
+    return tile % 10; // extract digit2
 }
 
 void init_tiles()
 {
     // initialize all to -1
-    for (int (&player)[SHAPE_MAX][TILE_MAX] : tiles)
+    for (int (&player)[SHAPE_MAX][IND_MAX] : tiles)
     {
-        for (int (&shape)[TILE_MAX] : player)
+        for (int (&shape)[IND_MAX] : player)
         {
             for (int &ind : shape)
                 ind = -1;
@@ -132,13 +127,13 @@ void init_tiles()
 
     for (int ind = 0; ind < AREA; ind++)
     {
-        char tile = board[ind];
+        int tile = board[ind];
         if (tile)
         {
             bool player = player_of(tile);
-            char shape = shape_of(tile);
-            int *begin = tiles[player][shape-SHAPE_I];
-            int *end   = begin + TILE_MAX;
+            int shape = shape_of(tile);
+            int *begin = tiles[player][shape];
+            int *end   = begin + IND_MAX;
             *std::find(begin, end, -1) = ind;
         }
     }
@@ -148,12 +143,12 @@ void init_tiles()
  * @return the forward direction relative to the given player.
  * In the configuration where white at bottom and black at top, white's foward = -1, black's foward = +1.
  */
-inline int rel_foward(bool player)
+constexpr int rel_foward(bool player)
 {
     return (player) ? -1 : 1;
 }
 
-inline int xy_of(int ind, bool is_y)
+constexpr int xy_of(int ind, bool is_y)
 {
     return (is_y) ? ind / SIZE : ind % SIZE;
 }
@@ -161,26 +156,24 @@ inline int xy_of(int ind, bool is_y)
 /**
  * @return captured tile.
  */
-inline char move(bool player, int ind_i, int ind_f, char restore = 0)
+int move(bool player, int ind_i, int ind_f, int restore = 0)
 /// TODO: pawn promotion
 {
     int *begin = tiles[player][shape_of(board[ind_i])];
-    int *end = begin + TILE_MAX;
+    int *end = begin + IND_MAX;
     *std::find(begin, end, ind_i) = ind_f;
 
-    char capture = board[ind_f];
+    int capture = board[ind_f];
     if (capture)
     {
-        tile_count[!player]--;
-        int *begin = tiles[!player][shape_of(board[ind_f])];
-        int *end = begin + TILE_MAX;
+        int *begin = tiles[!player][shape_of(capture)];
+        int *end = begin + IND_MAX;
         *std::find(begin, end, ind_f) = -1;
     }
     else if (restore)
     {
-        tile_count[!player] ++;
         int *begin = tiles[!player][shape_of(restore)];
-        int *end = begin + TILE_MAX;
+        int *end = begin + IND_MAX;
         *std::find(begin, end, ind_f) = ind_i;
     }
 
@@ -190,15 +183,15 @@ inline char move(bool player, int ind_i, int ind_f, char restore = 0)
 }
 
 /**
- * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since 0 can = black or empty!
+ * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since return 0 can = black or empty!
  * @return whether the given tile has the enemy of the given player && not king.
  */
-inline bool can_capture(bool player, char tile)
+constexpr bool can_capture(bool player, int tile)
 {
-    return player_of(tile) != player && shape_of(tile) != 'k';
+    return player_of(tile) != player && shape_of(tile) != KING;
 }
 
-inline bool is_play_area(int ind)
+constexpr bool is_play_area(int ind)
 {
     return xy_of(ind, 0) < 8 && 0 <= ind && ind < AREA;
 }
@@ -207,9 +200,9 @@ std::vector<int> gen_moves(bool player, int ind_i)
 {
     std::vector<int> moves;
     int ind = 0;
-    char shape = shape_of(board[ind_i]), tile = 0;
+    int shape = shape_of(board[ind_i]), tile = 0;
     
-    if (shape == 'k')
+    if (shape == KING)
     {
         for (int v: K_VECTOR)
         {
@@ -219,7 +212,7 @@ std::vector<int> gen_moves(bool player, int ind_i)
                 moves.push_back(ind);
         }
     }
-    if (shape == 'n')
+    if (shape == KNIGHT)
     {
         for (int v: N_VECTOR)
         {
@@ -229,7 +222,7 @@ std::vector<int> gen_moves(bool player, int ind_i)
                 moves.push_back(ind);
         }
     }
-    if (shape == 'r' || shape == 'q')
+    if (shape == ROOK || shape == QUEEN)
     {
         for (int v: R_VECTOR)
         {
@@ -242,7 +235,7 @@ std::vector<int> gen_moves(bool player, int ind_i)
 
         }
     }
-    if (shape == 'b' || shape == 'q')
+    if (shape == BISHOP || shape == QUEEN)
     {
         for (int v: B_VECTOR)
         {
@@ -253,7 +246,7 @@ std::vector<int> gen_moves(bool player, int ind_i)
                 moves.push_back(ind);
         }
     }
-    if (shape == 'p')
+    if (shape == PAWN)
     {
         ind_i += rel_foward(player)*SIZE;
         
@@ -293,17 +286,17 @@ std::vector<int> gen_moves(bool player, int ind_i)
 bool is_attacked(bool player, int ind_i)
 {
     int ind = 0, dx = 0, dy = 0;
-    char tile = 0;
+    int tile = 0;
 
     // check for enemy king (start with less costly ones)
-    ind = tiles[!player]['k'-SHAPE_I][0];
+    ind = tiles[!player][KING][0];
     dx = abs(xy_of(ind, 0) - xy_of(ind_i, 0));
     dy = abs(xy_of(ind, 1) - xy_of(ind_i, 1));
     if (std::max(dx, dy) == 1)
         return 1;
 
     // check for enemy knight
-    for (int ind : tiles[!player]['n'-SHAPE_I])
+    for (int ind : tiles[!player][KNIGHT])
     {
         dx = abs(xy_of(ind, 0) - xy_of(ind_i, 0));
         dy = abs(xy_of(ind, 1) - xy_of(ind_i, 1));
@@ -323,7 +316,7 @@ bool is_attacked(bool player, int ind_i)
         for (int v: {-1, 1})
         {
             tile = board[ind + v];
-            if (tile && player_of(tile) != player && shape_of(tile) == 'p')
+            if (tile && player_of(tile) != player && shape_of(tile) == PAWN)
                 return 1;
         }
     }
@@ -333,7 +326,7 @@ bool is_attacked(bool player, int ind_i)
         for (ind = ind_i + v; is_play_area(ind) && !board[ind]; ind += v)
         {}
         tile = board[ind];
-        if (tile && player_of(tile) != player && (shape_of(tile) == 'r' || shape_of(tile) == 'q'))
+        if (tile && player_of(tile) != player && (shape_of(tile) == ROOK || shape_of(tile) == QUEEN))
             return 1;
     }
     // let A' be enemy bishop or queen.
@@ -342,7 +335,7 @@ bool is_attacked(bool player, int ind_i)
         for (ind = ind_i + v; is_play_area(ind) && !board[ind]; ind += v)
         {}
         tile = board[ind];
-        if (tile && player_of(tile) != player && (shape_of(tile) == 'b' || shape_of(tile) == 'q'))
+        if (tile && player_of(tile) != player && (shape_of(tile) == BISHOP || shape_of(tile) == QUEEN))
             return 1;
     }
 
@@ -354,10 +347,10 @@ void out_board()
     for (bool player : {0, 1})
     {
         std::cout << "Player" << player << " tiles: " << std::endl;
-        for (char shape = SHAPE_I; shape <= SHAPE_F; shape++)
+        for (int shape = 1; shape <= SHAPE_MAX; shape++)
         {
             std::cout << '[' << shape << "]=";
-            for (int ind : tiles[player][shape-SHAPE_I])
+            for (int ind : tiles[player][shape])
             {
                 if (ind != -1)
                 {
@@ -371,7 +364,7 @@ void out_board()
         std::cout << "Tile(s) player" << player << " attacks: ";
         for (int ind = 0; ind < AREA; ind++)
         {
-            char tile = board[ind];
+            int tile = board[ind];
             if (tile && player_of(tile) != player && is_attacked(!player, ind))
                 std::cout << ind << ", ";
         }
@@ -391,7 +384,7 @@ void out_board()
             if (xy_of(ind, 0) == 0)
                 std::cout << std::setw(2) << ind << " |";
 
-            char tile = board[ind];
+            int tile = board[ind];
             std::cout << std::setw(3) << (tile ? tile : ' ');
         }
     }
@@ -406,43 +399,44 @@ void out_board()
 int minimax(bool player, int depth, int alpha, int beta)
 
 {
-    int child_score = 0, tile_rem = tile_count[player];
+    int child_score = 0;
 
     if (depth > MAX_DEPTH)
         return 0;
 
-    for (int ind_i = 0; ind_i < AREA; ind_i++)
+    for (int (&shape_i)[IND_MAX] : tiles[player])
     {
-        char tile_i = board[ind_i];
-        if (tile_rem > 0 && tile_i && player_of(tile_i) == player)
+        for (int ind_i : shape_i)
         {
-            tile_rem --;
-            for (int ind_f : gen_moves(player, ind_i))
+            if (ind_i != -1)
             {
-                char capture = move(player, ind_i, ind_f);
-
-                if (!is_attacked(player, tiles[player]['k'-SHAPE_I][0]))
+                for (int ind_f : gen_moves(player, ind_i))
                 {
-                    child_score = minimax(!player, depth+1, alpha, beta);
+                    int capture = move(player, ind_i, ind_f);
 
-                    if (player == MAXER)
-                        alpha = std::max(alpha, child_score);
-                    else // if MINER
-                        beta = std::min(beta, child_score);
-                    if (beta <= alpha)
+                    if (!is_attacked(player, tiles[player][KING][0]))
                     {
-                        move(player, ind_f, ind_i, capture); // undo move
-                        break;
+                        child_score = minimax(!player, depth+1, alpha, beta);
+
+                        if (player == MAXER)
+                            alpha = std::max(alpha, child_score);
+                        else // if MINER
+                            beta = std::min(beta, child_score);
+                        if (beta <= alpha)
+                        {
+                            move(player, ind_f, ind_i, capture); // undo move
+                            break;
+                        }
                     }
+                    move(player, ind_f, ind_i, capture); // undo move
                 }
-                move(player, ind_f, ind_i, capture); // undo move
             }
         }
     }
 
     if (child_score == 0) // if no legal move. If move exists, minimax() never return 0 and child_score != 0.
     {
-        if (is_attacked(player, tiles[player]['k'-SHAPE_I][0])) // checkmate
+        if (is_attacked(player, tiles[player][KING][0])) // checkmate
             return (player == MAXER) ? INT_MIN + depth : INT_MAX - depth;
         
         // stalemate
@@ -454,39 +448,40 @@ int minimax(bool player, int depth, int alpha, int beta)
 
 void bot_move(bool bot)
 {
-    int best_ind_i = 0, best_ind_f = 0, best_score = 0, tile_rem = tile_count[bot];
+    int best_ind_i = 0, best_ind_f = 0, best_score = 0;
 
-    for (int ind_i = 0; ind_i < AREA; ind_i++)
+    for (int (&shape_i)[IND_MAX] : tiles[bot])
     {
-        char tile_i = board[ind_i];
-        if (tile_rem > 0 && tile_i && player_of(tile_i) == bot)
+        for (int ind_i : shape_i)
         {
-            tile_rem --;
-            std::cout << "Possible {move, score} from " << ind_i << ": ";
-            for (int ind_f : gen_moves(bot, ind_i))
+            if (ind_i != -1)
             {
-                char capture = move(bot, ind_i, ind_f);
-
-                int score = minimax(!bot, 1, INT_MIN, INT_MAX);
-                std::cout << "{" << ind_f << ", " << score << "}, ";
-                if (bot == MAXER)
+                std::cout << "Possible {move, score} from " << ind_i << ": ";
+                for (int ind_f : gen_moves(bot, ind_i))
                 {
-                    if (score > best_score)
+                    int capture = move(bot, ind_i, ind_f);
+
+                    int score = minimax(!bot, 1, INT_MIN, INT_MAX);
+                    std::cout << "{" << ind_f << ", " << score << "}, ";
+                    if (bot == MAXER)
+                    {
+                        if (score > best_score)
+                        {
+                            best_ind_i = ind_i;
+                            best_ind_f = ind_f;
+                            best_score = score;
+                        }
+                    }
+                    else if (score < best_score) // if MINER
                     {
                         best_ind_i = ind_i;
                         best_ind_f = ind_f;
                         best_score = score;
                     }
+                    move(bot, ind_f, ind_i, capture); // undo move
                 }
-                else if (score < best_score) // if MINER
-                {
-                    best_ind_i = ind_i;
-                    best_ind_f = ind_f;
-                    best_score = score;
-                }
-                move(bot, ind_f, ind_i, capture); // undo move
+                std::cout << std::endl;
             }
-            std::cout << std::endl;
         }
     }
     std::cout << "Chosen move: " << best_ind_i << " to " << best_ind_f << std::endl;
@@ -513,27 +508,27 @@ int validate(int ind_i, int ind_f)
         return 4;
 
     // king && check direction
-    if (shape == 'k' && std::max(dx, dy) > 1)
+    if (shape == KING && std::max(dx, dy) > 1)
         return 1;
 
     // knight && check direction
-    if ((shape == 'n') && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
+    if ((shape == KNIGHT) && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
         return 1;
 
     // queen && check direction
-    if (shape == 'q' && dx && dy && dx != dy)
+    if (shape == QUEEN && dx && dy && dx != dy)
         return 1; 
 
     // rook && check direction
-    if (shape == 'r' && dx && dy)
+    if (shape == ROOK && dx && dy)
         return 1;
     
     // bishop && check direction
-    if (shape == 'b' && dx != dy)
+    if (shape == BISHOP && dx != dy)
         return 1;
 
     // pawn && check direction
-    if (shape == 'p')
+    if (shape == PAWN)
     {
         if (rel_foward(player) * (ind_f - ind_i) < 0) // moved backward
             return -1;
@@ -550,7 +545,7 @@ int validate(int ind_i, int ind_f)
             return 1;
     }
 
-    if (shape != 'k' && shape != 'n')
+    if (shape != KING && shape != KNIGHT)
     {
         // check if all tiles on the path are empty
         int v = (ind_f - ind_i) / std::max(dx, dy); 
