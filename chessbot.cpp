@@ -8,7 +8,7 @@
 #include <iomanip>
 
 const int KING = 1, KNIGHT = 2, ROOK = 3, BISHOP = 4, QUEEN = 5, PAWN = 6;
-const int PLAY_SIZE = 8, // playable height/width
+const int PLAY_SIZE = 8, // playable width/height
     SIZE = PLAY_SIZE + 2, // playable width + sentinels
     AREA = PLAY_SIZE*SIZE;
 /**
