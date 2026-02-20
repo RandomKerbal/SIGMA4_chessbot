@@ -306,7 +306,8 @@ bool is_attacked(bool player, int ind)
 
     // Start with pieces more likely to be attacked by (pawns -> knights -> bishops -> rooks -> queens -> king).
 
-    // Check for enemy pawn. Pretend "I" am a pawn and check where "I" can capture.
+    // check for enemy pawns
+    // Pretend "I" am a pawn and check where "I" can capture.
     ind_e = ind + rel_foward(player)*SIZE;
     if (0 <= ind_e && ind_e < AREA)
     {
@@ -318,42 +319,55 @@ bool is_attacked(bool player, int ind)
         }
     }
 
-    // Check for enemy knight. Iterate over all enemy knights.
+    // check for enemy knights
+    // Iterate over all enemy knights.
     for (int indB2_e = 0; indB2_e < NUM[KNIGHT]; indB2_e++)
     {
         ind_e = board2[!player][KNIGHT][indB2_e];
-        dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-        dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
-        if ((dx == 1 && dy == 2) && (dx == 2 && dy == 1))
-            return 1;
+        if (ind_e >= 0) // if not captured
+        {
+            dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
+            dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+            if ((dx == 1 && dy == 2) && (dx == 2 && dy == 1))
+                return 1;
+        }
     }
 
-    // check for enemy bishop
+    // check for enemy bishops
     for (int indB2_e = 0; indB2_e < NUM[BISHOP]; indB2_e++)
     {
         ind_e = board2[!player][BISHOP][indB2_e];
-        dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-        dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
-        if (dx == dy && is_path_clear(ind, ind_e, dx, dy))
-            return 1;
+        if (ind_e >= 0)
+        {
+            dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
+            dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+            if (dx == dy && is_path_clear(ind, ind_e, dx, dy))
+                return 1;
+        }
     }
 
-    // check for enemy rook
+    // check for enemy rooks
     for (int indB2_e = 0; indB2_e < NUM[ROOK]; indB2_e++)
     {
         ind_e = board2[!player][ROOK][indB2_e];
-        dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-        dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
-        if ((dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
-            return 1;
+        if (ind_e >= 0)
+        {
+            dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
+            dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+            if ((dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
+                return 1;
+        }
     }
 
     // check for enemy queen
     ind_e = board2[!player][QUEEN][0];
-    dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-    dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
-    if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
-        return 1;
+    if (ind_e >= 0)
+    {
+        dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
+        dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
+            return 1;
+    }
 
     // check for enemy king
     ind_e = board2[!player][KING][0];
