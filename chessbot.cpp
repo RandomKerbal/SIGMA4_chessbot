@@ -302,7 +302,7 @@ inline bool is_path_clear(int ind_i, int ind_f, int dx, int dy)
 bool is_attacked(bool player, int ind)
 {
     int ind_e = 0, // enemy index on main board
-        dx = 0, dy = 0, tile = 0;
+        dx = 0, dy = 0;
 
     // Start with pieces more likely to be attacked by (pawns -> knights -> bishops -> rooks -> queens -> king).
 
@@ -312,7 +312,7 @@ bool is_attacked(bool player, int ind)
     {
         for (int v: {-1, 1})
         {
-            tile = board[ind_e + v];
+            int tile = board[ind_e + v];
             if (tile && player_of(tile) != player && shape_of(tile) == PAWN)
                 return 1;
         }
