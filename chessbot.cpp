@@ -9,9 +9,11 @@
 
 /**
  *  IMPORTANT: SHAPE[0] is undefined. It starts at 1 to sync with shapes on board.
+ *  Start with pieces more likely to capture others (pawns -> knights -> bishops -> rooks -> queens -> king).
+ *  Pawns are first since capturing with a pawn is usually a good move -> enables more AlphaBeta prunning.
  */
-enum SHAPE { PAWN = 1, KNIGHT = 2, ROOK = 3, BISHOP = 4, QUEEN = 5, KING = 6 };
-enum PLAYER { BLACK = false, WHITE = true };
+enum SHAPE { PAWN = 1, KNIGHT = 2, BISHOP = 3, ROOK = 4, QUEEN = 5, KING = 6 };
+enum PLAYER { BLACK = 0, WHITE = 1 };
 
 const int PLAY_SIZE = 8, // playable width/height
     SIZE = PLAY_SIZE + 2, // playable width + sentinels
@@ -31,14 +33,14 @@ const int PLAY_SIZE = 8, // playable width/height
  * is the leftmost 8x8. Sentinel/empty are 0 to identify easily using !board[ind]
  */
 int board[AREA] = {
-     3,  2,  4,  5,  6,  4,  2,  3, 0, 0,
+     4,  2,  3,  5,  6,  3,  2,  4, 0, 0,
      1,  1,  1,  1,  1,  1,  1,  1, 0, 0,
      0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
      0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
      0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
      0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
     11, 11, 11, 11, 11, 11, 11, 11, 0, 0,
-    13, 12, 14, 15, 16, 14, 12, 13, 0, 0,
+    14, 12, 13, 15, 16, 13, 12, 14, 0, 0,
 };
 
 const int MAX_SHAPE = 7; // maximum number of different shapes, starts at 1
@@ -57,7 +59,6 @@ const int NUM[MAX_SHAPE] = {0, MAX_NUM, 2, 2, 2, 1, 1}; // index = shape, val = 
  * IMPORTANT:
  * 1. Must call init_board2() at the start of every program!
  * 2. If a tile is captured, its index becomes index - AREA.
- * Pawns are first since capturing with a pawn is usually a good move -> enables more AlphaBeta prunning.
  */
 int board2[2][MAX_SHAPE][MAX_NUM];
 
@@ -100,10 +101,20 @@ const bool MAXER = 1, // white
 const int MAX_DEPTH = 5;
 
 /**
+ * char_of
+ * ├── 0 (black)
+ * │   └── 1...6: see enum SHAPE
+ * │
+ * └── 1 (white)
+ *     └── 1...6: see enum SHAPE
+ * 
  * Converts tile from integer to character.
- * lowercase: black; uppercase: white
+ * lowercase: black; uppercase: white 
  */
-const char char_of[17] = {' ', 'p', 'n', 'r', 'b', 'q', 'k', 0, 0, 0, 0, 'P', 'N', 'R', 'B', 'Q', 'K'};
+const char char_of[2][MAX_SHAPE] = {
+    { ' ', 'p', 'n', 'b', 'r', 'q', 'k' },
+    { ' ', 'P', 'N', 'B', 'R', 'Q', 'K' },
+};
 
 /**
  * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since return 0 can = black or empty!
@@ -197,7 +208,7 @@ inline bool can_capture(bool player, int tile)
 
 inline bool is_play_area(int ind)
 {
-    return xy_of(ind, 0) < 8 && 0 <= ind && ind < AREA;
+    return xy_of(ind, 0) < 8 && unsigned(ind) < AREA; // if x < 0, it becomes a huge unsigned number > AREA.
 }
 
 std::vector<int> gen_moves(bool player, int shape, int ind_i)
@@ -310,16 +321,11 @@ bool is_attacked(bool player, int ind)
 
     // check for enemy pawns
     // Pretend "I" am a pawn and check where "I" can capture.
+    const int PAWN_e = !player*10 + PAWN;
     ind_e = ind + rel_foward(player)*SIZE;
-    if (0 <= ind_e && ind_e < AREA)
-    {
-        for (int v: {-1, 1})
-        {
-            int tile = board[ind_e + v];
-            if (tile && player_of(tile) != player && shape_of(tile) == PAWN)
-                return 1;
-        }
-    }
+    if ((is_play_area(ind_e + 1) && board[ind_e + 1] == PAWN_e) ||
+        (is_play_area(ind_e - 1) && board[ind_e - 1] == PAWN_e))
+        return 1;
 
     // check for enemy knights
     // Iterate over all enemy knights.
@@ -387,7 +393,7 @@ void out_board()
     {
         for (int shape = 1; shape < MAX_SHAPE; shape++)
         {
-            std::cout << '[' << char_of[shape + 10*player] << "]=";
+            std::cout << '[' << char_of[player][shape] << "]=";
             for (int indB2 = 0; indB2 < NUM[shape]; indB2++)
             {
                 int ind = board2[player][shape][indB2];
@@ -424,7 +430,7 @@ void out_board()
                 std::cout << std::setw(2) << ind << " |";
 
             int tile = board[ind];
-            std::cout << std::setw(3) << char_of[tile];
+            std::cout << std::setw(3) << char_of[player_of(tile)][shape_of(tile)];
         }
     }
     std::cout << "   +-------------YOU-------------+" << std::endl;
