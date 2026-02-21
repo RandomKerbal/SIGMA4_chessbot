@@ -11,7 +11,7 @@
  *  IMPORTANT: SHAPE[0] is undefined. It starts at 1 to sync with shapes on board.
  */
 enum SHAPE { PAWN = 1, KNIGHT = 2, ROOK = 3, BISHOP = 4, QUEEN = 5, KING = 6 };
-enum PLAYER { BLACK = 0, WHITE = 1 };
+enum PLAYER { BLACK = false, WHITE = true };
 
 const int PLAY_SIZE = 8, // playable width/height
     SIZE = PLAY_SIZE + 2, // playable width + sentinels
@@ -383,7 +383,7 @@ bool is_attacked(bool player, int ind)
 
 void out_board()
 {
-    for (bool player : {0, 1})
+    for (bool player : {BLACK, WHITE})
     {
         for (int shape = 1; shape < MAX_SHAPE; shape++)
         {
