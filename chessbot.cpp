@@ -82,19 +82,19 @@ const int N_VECTOR[8] = {
     1 - 2*SIZE,     // (1, -2)
     2 - SIZE        // (2, -1)
 };
-const int R_VECTOR[4] = {
-    +1,         // right
-    -1,         // left
-    +SIZE,      // down
-    -SIZE       // up
-};
 const int B_VECTOR[4] = {
     +1 + SIZE,  // down-right
     +1 - SIZE,  // up-right
     -1 + SIZE,  // down-left
     -1 - SIZE   // up-left
 };
-// no Q_VECTOR since it's a combination of R_VECTOR & B_VECTOR
+const int R_VECTOR[4] = {
+    +1,         // right
+    -1,         // left
+    +SIZE,      // down
+    -SIZE       // up
+};
+// no Q_VECTOR since it's a combination of B_VECTOR & R_VECTOR
 
 const bool MAXER = 1, // white
     MINER = 0; // black
