@@ -150,8 +150,8 @@ void init_board2()
         {
             bool player = player_of(tile);
             int shape = shape_of(tile);
-            int *begin = board2[player][shape];
-            int *end = begin + NUM[shape];
+            int* begin = board2[player][shape];
+            int* end = begin + NUM[shape];
             *std::find(begin, end, -1) = ind;
         }
     }
@@ -179,11 +179,11 @@ inline std::pair<int, int*> move(bool player, int shape, int indB2, int ind_i, i
 /// TODO: pawn promotion
 {
     int capture = board[ind_f];
-    int *ptr = nullptr;
+    int* ptr = nullptr;
     if (capture)
     {
-        int *begin = board2[!player][shape_of(capture)];
-        int *end = begin + MAX_NUM;
+        int* begin = board2[!player][shape_of(capture)];
+        int* end = begin + MAX_NUM;
         ptr = std::find(begin, end, ind_f);
         *ptr -= AREA; // move ind_f outside board
     }
