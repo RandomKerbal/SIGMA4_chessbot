@@ -172,29 +172,30 @@ inline int xy_of(int ind, bool is_y)
 }
 
 /**
- * @return captured tile.
+ * @return { captured tile, pointer to captured tile in board2 }
+ * Returned value is fed into parameter: restore when undoing moves.
  */
-inline int move(bool player, int shape, int indB2, int ind_i, int ind_f, int restore = 0)
+inline std::pair<int, int*> move(bool player, int shape, int indB2, int ind_i, int ind_f, std::pair<int, int*> restore = {0, nullptr})
 /// TODO: pawn promotion
 {
     int capture = board[ind_f];
+    int *ptr = nullptr;
     if (capture)
     {
         int *begin = board2[!player][shape_of(capture)];
         int *end = begin + MAX_NUM;
-        *std::find(begin, end, ind_f) -= AREA; // move ind_f outside board
+        ptr = std::find(begin, end, ind_f);
+        *ptr -= AREA; // move ind_f outside board
     }
-    else if (restore)
+    else if (restore.first) // if tile to restore exists, pointer must exist
     {
-        int *begin = board2[!player][shape_of(restore)];
-        int *end = begin + MAX_NUM;
-        *std::find(begin, end, ind_i-AREA) += AREA; // move ind_f outside the board back in
+        *restore.second += AREA; // move ind_f outside board back inside
     }
 
     board2[player][shape][indB2] = ind_f;
     board[ind_f] = board[ind_i];
-    board[ind_i] = restore;
-    return capture;
+    board[ind_i] = restore.first;
+    return {capture, ptr};
 }
 
 /**
@@ -457,7 +458,7 @@ int minimax(bool player, int depth, int alpha, int beta)
             {
                 for (int ind_f : gen_moves(player, shape, ind_i))
                 {
-                    int capture = move(player, shape, indB2, ind_i, ind_f);
+                    std::pair<int, int*> capture = move(player, shape, indB2, ind_i, ind_f);
 
                     if (!is_attacked(player, board2[player][KING][0]))
                     {
@@ -508,7 +509,7 @@ void bot_move(bool bot)
                 std::cout << "Possible {move, score} from " << ind_i << ": ";
                 for (int ind_f : gen_moves(bot, shape, ind_i))
                 {
-                    int capture = move(bot, shape, indB2, ind_i, ind_f);
+                    std::pair<int, int*> capture = move(bot, shape, indB2, ind_i, ind_f);
 
                     if (!is_attacked(bot, board2[bot][KING][0]))
                     {
