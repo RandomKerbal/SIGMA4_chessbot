@@ -11,17 +11,20 @@
  *  IMPORTANT: SHAPE[0] is undefined. It starts at 1 to sync with shapes on board.
  */
 enum SHAPE { PAWN = 1, KNIGHT = 2, ROOK = 3, BISHOP = 4, QUEEN = 5, KING = 6 };
+enum PLAYER { BLACK = 0, WHITE = 1 };
 
 const int PLAY_SIZE = 8, // playable width/height
     SIZE = PLAY_SIZE + 2, // playable width + sentinels
     AREA = PLAY_SIZE*SIZE;
 /** 
  * board
- * ├── columns 8,9 element: sentinel
- * └── columns 0...8 element (aka tile):
+ * ├── columns 8,9 element
+ * │   └── 0: sentinel
+ * │
+ * └── columns 0...8 element (tile)
  *     ├── 0: empty
- *     ├── digit1 (aka player): 0: black, 1: white
- *     └── digit2 (aka shape): see enum SHAPE
+ *     ├── digit1 (player): see enum PLAYER
+ *     └── digit2 (shape): see enum SHAPE
  * 
  * The board is 10x8 since the two rightmost columns are sentinels that prevent
  * pointers from "wrapping" onto the previous/next row. The real playable area
@@ -43,11 +46,11 @@ const int MAX_NUM = 8;  // maximum number of pieces of any shape
 const int NUM[MAX_SHAPE] = {0, MAX_NUM, 2, 2, 2, 1, 1}; // index = shape, val = number of pieces of the shape
 /**
  * board2 (aka B2)
- * ├── 0: black
+ * ├── 0 (black)
  * │   └── 1...6: see enum SHAPE
  * │       └── 0...NUM[MAX_SHAPE]-1: indexes on main board
  * │
- * └── 1: white
+ * └── 1 (white)
  *     └── 1...6: see enum SHAPE
  *         └── 0...NUM[MAX_SHAPE]-1: indexes on main board
  * 
@@ -104,8 +107,7 @@ const char char_of[17] = {' ', 'p', 'n', 'r', 'b', 'q', 'k', 0, 0, 0, 0, 'P', 'N
 
 /**
  * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since return 0 can = black or empty!
- * @return the player occupying the given tile.
- * 0: black player || empty, 1: white player
+ * @return the player occupying the given tile (see enum PLAYER).
  */
 inline bool player_of(int tile)
 {
@@ -120,7 +122,7 @@ inline int shape_of(int tile)
 void init_board2()
 {
     // initialize all to -1
-    for (bool player : {0, 1})
+    for (bool player : {BLACK, WHITE})
     {
         for (int shape = 1; shape < MAX_SHAPE; shape++)
         {
@@ -429,7 +431,7 @@ void out_board()
 }
 
 /**
- * Minimax + Depth-adjusted Score + AlphaBeta Prunning
+ * Minimax + Depth-adjusted Score + AlphaBeta Prunning + Transposition Table
  * In first call, use depth = 1, alpha = INT_MIN, beta = INT_MAX.
  * @return: -depth if stalemate. INT_MAX-depth if checked by MAXER. INT_MIN-depth if checked by MINER.
  */
@@ -483,6 +485,9 @@ int minimax(bool player, int depth, int alpha, int beta)
     return (player == MAXER) ? alpha : beta;
 }
 
+/**
+ * Behave the same as minimax(), with the addition of recording the best move.
+ */
 void bot_move(bool bot)
 {
     int best_indB2 = 0, best_shape = 0, best_ind_i = 0, best_ind_f = 0, best_score = 0;
@@ -499,11 +504,22 @@ void bot_move(bool bot)
                 {
                     int capture = move(bot, shape, indB2, ind_i, ind_f);
 
-                    int score = minimax(!bot, 1, INT_MIN, INT_MAX);
-                    std::cout << "{" << ind_f << ", " << score << "}, ";
-                    if (bot == MAXER)
+                    if (!is_attacked(bot, board2[bot][KING][0]))
                     {
-                        if (score > best_score)
+                        int score = minimax(!bot, 1, INT_MIN, INT_MAX);
+                        std::cout << "{" << ind_f << ", " << score << "}, ";
+                        if (bot == MAXER)
+                        {
+                            if (score > best_score)
+                            {
+                                best_indB2 = indB2;
+                                best_shape = shape;
+                                best_ind_i = ind_i;
+                                best_ind_f = ind_f;
+                                best_score = score;
+                            }
+                        }
+                        else if (score < best_score) // if MINER
                         {
                             best_indB2 = indB2;
                             best_shape = shape;
@@ -511,14 +527,6 @@ void bot_move(bool bot)
                             best_ind_f = ind_f;
                             best_score = score;
                         }
-                    }
-                    else if (score < best_score) // if MINER
-                    {
-                        best_indB2 = indB2;
-                        best_shape = shape;
-                        best_ind_i = ind_i;
-                        best_ind_f = ind_f;
-                        best_score = score;
                     }
                     move(bot, shape, indB2, ind_f, ind_i, capture); // undo move
                 }
