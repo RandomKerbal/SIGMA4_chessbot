@@ -56,6 +56,10 @@ const int NUM[MAX_SHAPE] = {0, MAX_NUM, 2, 2, 2, 1, 1}; // index = shape, val = 
  *     └── 1...6: see enum SHAPE
  *         └── 0...NUM[MAX_SHAPE]-1: indexes on main board
  * 
+ * Board2 advantages:
+ * 1. Do not need to iterate over empty/enemy tiles in minimax().
+ * 2. Quick access of enemy tiles index in is_attacked().
+ * 
  * IMPORTANT:
  * 1. Must call init_board2() at the start of every program!
  * 2. If a tile is captured, its index becomes index - AREA.
@@ -405,10 +409,7 @@ void out_board()
             for (int indB2 = 0; indB2 < NUM[shape]; indB2++)
             {
                 int ind = board2[player][shape][indB2];
-                if (ind >= 0) // if not captured
-                {
-                    std::cout << ind << ",";
-                }
+                std::cout << ind << ",";
             }
             std::cout << "; ";
         }
