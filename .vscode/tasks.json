@@ -31,8 +31,20 @@
                 "/Zi",
                 "/EHsc",
                 "/nologo",
+                "/Ox",
+                "/Ob3",
+                "/Oi",
+                "/GF",
+                "/Gy",
+                "/GL",
                 "/Fe${fileDirname}\\${fileBasenameNoExtension}.exe",
-                "${file}"
+                "${file}",
+                "/link",
+                "/LTCG",
+                "/INCREMENTAL:NO",
+                "/OPT:REF",
+                "/OPT:ICF",
+                "/DEBUG"
             ],
             "options": {
                 "cwd": "${fileDirname}"

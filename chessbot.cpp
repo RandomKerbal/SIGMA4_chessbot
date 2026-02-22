@@ -122,7 +122,7 @@ const char char_of[2][MAX_SHAPE] = {
  */
 inline bool player_of(int tile)
 {
-    return tile/10; // extract digit1
+    return tile / 10; // extract digit1
 }
 
 inline int shape_of(int tile)
@@ -166,9 +166,14 @@ inline int rel_foward(bool player)
     return (player) ? -1 : 1;
 }
 
-inline int xy_of(int ind, bool is_y)
+inline int x_of(int ind)
 {
-    return (is_y) ? ind / SIZE : ind % SIZE;
+    return ind % SIZE;
+}
+
+inline int y_of(int ind)
+{
+    return ind / SIZE;
 }
 
 /**
@@ -182,9 +187,11 @@ inline std::pair<int, int*> move(bool player, int shape, int indB2, int ind_i, i
     int* ptr = nullptr;
     if (capture)
     {
-        int* begin = board2[!player][shape_of(capture)];
-        int* end = begin + MAX_NUM;
-        ptr = std::find(begin, end, ind_f);
+        int num = NUM[shape_of(capture)];
+        ptr = board2[!player][shape_of(capture)];
+        if (num > 1)
+            ptr = std::find(ptr, ptr + num, ind_f);
+
         *ptr -= AREA; // move ind_f outside board
     }
     else if (restore.first) // if tile to restore exists, pointer must exist
@@ -209,7 +216,7 @@ inline bool can_capture(bool player, int tile)
 
 inline bool is_play_area(int ind)
 {
-    return xy_of(ind, 0) < 8 && unsigned(ind) < AREA; // if x < 0, it becomes a huge unsigned number > AREA.
+    return x_of(ind) < 8 && unsigned(ind) < AREA; // if x < 0, it becomes a huge unsigned number > AREA.
 }
 
 std::vector<int> gen_moves(bool player, int shape, int ind_i)
@@ -283,7 +290,7 @@ std::vector<int> gen_moves(bool player, int shape, int ind_i)
         {
             moves.push_back(ind_i);
         
-            if (xy_of(ind_i, 1) == 1 || xy_of(ind_i, 1) == 6) // if pawn can step 2
+            if (y_of(ind_i) == 1 || y_of(ind_i) == 6) // if pawn can step 2
             {
                 ind_i += rel_foward(player)*SIZE;
                 if (!board[ind_i])
@@ -335,8 +342,8 @@ bool is_attacked(bool player, int ind)
         ind_e = board2[!player][KNIGHT][indB2_e];
         if (ind_e >= 0) // if not captured
         {
-            dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-            dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+            dx = abs(x_of(ind_e) - x_of(ind));
+            dy = abs(y_of(ind_e) - y_of(ind));
             if ((dx == 1 && dy == 2) && (dx == 2 && dy == 1))
                 return 1;
         }
@@ -348,8 +355,8 @@ bool is_attacked(bool player, int ind)
         ind_e = board2[!player][BISHOP][indB2_e];
         if (ind_e >= 0)
         {
-            dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-            dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+            dx = abs(x_of(ind_e) - x_of(ind));
+            dy = abs(y_of(ind_e) - y_of(ind));
             if (dx == dy && is_path_clear(ind, ind_e, dx, dy))
                 return 1;
         }
@@ -361,8 +368,8 @@ bool is_attacked(bool player, int ind)
         ind_e = board2[!player][ROOK][indB2_e];
         if (ind_e >= 0)
         {
-            dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-            dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+            dx = abs(x_of(ind_e) - x_of(ind));
+            dy = abs(y_of(ind_e) - y_of(ind));
             if ((dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
                 return 1;
         }
@@ -372,16 +379,16 @@ bool is_attacked(bool player, int ind)
     ind_e = board2[!player][QUEEN][0];
     if (ind_e >= 0)
     {
-        dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-        dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+        dx = abs(x_of(ind_e) - x_of(ind));
+        dy = abs(y_of(ind_e) - y_of(ind));
         if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
             return 1;
     }
 
     // check for enemy king
     ind_e = board2[!player][KING][0];
-    dx = abs(xy_of(ind_e, 0) - xy_of(ind, 0));
-    dy = abs(xy_of(ind_e, 1) - xy_of(ind, 1));
+    dx = abs(x_of(ind_e) - x_of(ind));
+    dy = abs(y_of(ind_e) - y_of(ind));
     if (std::max(dx, dy) == 1)
         return 1;
 
@@ -420,14 +427,14 @@ void out_board()
     std::cout << "   +-------------BOT-------------+" << std::endl;
     for (int ind = 0; ind < AREA; ind++)
     {
-        if (xy_of(ind, 0) > 7) // sentinels
+        if (x_of(ind) > 7) // sentinels
         {
             std::cout << " . . | " << ind-1 << std::endl;
             ind++;
         }
         else
         {
-            if (xy_of(ind, 0) == 0)
+            if (x_of(ind) == 0)
                 std::cout << std::setw(2) << ind << " |";
 
             int tile = board[ind];
@@ -554,7 +561,8 @@ int validate(int ind_i, int ind_f)
 {
     bool player = player_of(board[ind_i]);
     int shape = shape_of(board[ind_i]),
-        dx = abs(xy_of(ind_f, 0) - xy_of(ind_i, 0)), dy = abs(xy_of(ind_f, 1) - xy_of(ind_i, 1));
+        dx = abs(x_of(ind_f) - x_of(ind_i)),
+        dy = abs(y_of(ind_f) - y_of(ind_i));
 
     if (!board[ind_i])
         return 2;
@@ -596,7 +604,7 @@ int validate(int ind_i, int ind_f)
             if (dx != 0)
                 return 1;
             
-            if (dy > 1 + (xy_of(ind_i, 1) == 1 || xy_of(ind_i, 1) == 6)) // if pawn at starting line: dy > 1+1; else: dy>1+0
+            if (dy > 1 + (y_of(ind_i) == 1 || y_of(ind_i) == 6)) // if pawn at starting line: dy > 1+1; else: dy>1+0
                 return 1;
         }
         else if (dx != 1 || dy != 1) // && not empty
