@@ -31,7 +31,7 @@
                 "/Zi",
                 "/EHsc",
                 "/nologo",
-                "/Ox",
+                "/Ox", // dsiable to prevent "optimized away"
                 "/Ob3",
                 "/Oi",
                 "/GF",

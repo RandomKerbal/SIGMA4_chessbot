@@ -1,102 +1,134 @@
 #include <cmath>
 #include <vector>
+#include <unordered_map>
 #include <climits>
 #include <algorithm>
+#include <random>
 
 // remove in VEXIQ
 #include <iostream>
 #include <iomanip>
 
+std::mt19937_64 rng(67);
+
 /**
- *  IMPORTANT: SHAPE[0] is undefined. It starts at 1 to sync with shapes on board.
- *  Start with pieces more likely to capture others (pawns -> knights -> bishops -> rooks -> queens -> king).
- *  Pawns are first since capturing with a pawn is usually a good move -> enables more AlphaBeta prunning.
+ *  IMPORTANT: SHAPE 0 is undefined. It starts at 1 to sync with shapes on board.
+ *  Start with pieces that capture more commonly (pawns -> knights -> bishops -> rooks -> queens -> king) to mimic human behavior.
+ *  Pawns are first since capturing with a pawn is usually a good move and enables more AlphaBeta prunning.
  */
-enum SHAPE { PAWN = 1, KNIGHT = 2, BISHOP = 3, ROOK = 4, QUEEN = 5, KING = 6 };
+enum SHAPE { PAWN = 1, KNIGHT = 2, BISHOP = 3, ROOK = 4, QUEEN = 5, KING = 6,
+    MAX_SHAPE = 7 // max number of shapes +1
+};
 enum PLAYER { BLACK = 0, WHITE = 1 };
 
-const int PLAY_SIZE = 8, // playable width/height
-    SIZE = PLAY_SIZE + 2, // playable width + sentinels
-    AREA = PLAY_SIZE*SIZE;
+const int HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH; // board dimensions
+
+/**
+ * NUM
+ * └── 1...6: see enum SHAPE
+ *     └── number of pieces of the shape in main board
+ * 
+ * IMPORTANT: Must call init_board2_NUM_tableZ_hash() at the start of every program!
+ */
+int NUM[MAX_SHAPE] = {0};
+
 /** 
  * board
  * ├── columns 8,9 element
  * │   └── 0: sentinel
  * │
  * └── columns 0...8 element (tile)
- *     ├── 0: empty
- *     ├── digit1 (player): see enum PLAYER
- *     └── digit2 (shape): see enum SHAPE
+ *     └── 0: empty
+ *     ├── digit1: see enum PLAYER
+ *     ├── digit2: see enum SHAPE
+ *     └── digit3 (indB2): index on board2
  * 
  * The board is 10x8 since the two rightmost columns are sentinels that prevent
  * pointers from "wrapping" onto the previous/next row. The real playable area
  * is the leftmost 8x8. Sentinel/empty are 0 to identify easily using !board[ind]
  */
 int board[AREA] = {
-     4,  2,  3,  5,  6,  3,  2,  4, 0, 0,
-     1,  1,  1,  1,  1,  1,  1,  1, 0, 0,
-     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
-     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
-     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
-     0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
-    11, 11, 11, 11, 11, 11, 11, 11, 0, 0,
-    14, 12, 13, 15, 16, 13, 12, 14, 0, 0,
+     40,  20,  30,  50,  60,  31,  21,  41, 0, 0,
+     10,  11,  12,  13,  14,  15,  16,  17, 0, 0,
+      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
+      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
+      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
+      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
+    110, 111, 112, 113, 114, 115, 116, 117, 0, 0,
+    140, 120, 130, 150, 160, 131, 121, 141, 0, 0,
 };
 
-const int MAX_SHAPE = 7; // maximum number of different shapes, starts at 1
-const int MAX_NUM = 8;  // maximum number of pieces of any shape
-const int NUM[MAX_SHAPE] = {0, MAX_NUM, 2, 2, 2, 1, 1}; // index = shape, val = number of pieces of the shape
 /**
  * board2 (aka B2)
- * ├── 0 (black)
- * │   └── 1...6: see enum SHAPE
- * │       └── 0...NUM[MAX_SHAPE]-1: indexes on main board
- * │
- * └── 1 (white)
+ * └── 0,1: see enum PLAYER
  *     └── 1...6: see enum SHAPE
- *         └── 0...NUM[MAX_SHAPE]-1: indexes on main board
+ *         └── 0...NUM[SHAPE]-1
+ *             └── indexes on main board. If a tile is captured, its index becomes: index - AREA.
  * 
- * Board2 advantages:
+ * board2 advantages:
  * 1. Do not need to iterate over empty/enemy tiles in minimax().
  * 2. Quick access of enemy tiles index in is_attacked().
  * 
- * IMPORTANT:
- * 1. Must call init_board2() at the start of every program!
- * 2. If a tile is captured, its index becomes index - AREA.
+ * IMPORTANT: Must call init_board2_NUM_tableZ_hash() at the start of every program!
  */
-int board2[2][MAX_SHAPE][MAX_NUM];
+int board2[2][MAX_SHAPE][8] = {{{0}}};
+
+/**
+ * hash of board
+ */
+unsigned long long int hash;
+
+/**
+ * tableZ (Zobrist Table)
+ * └── 0...80: index on main board
+ *     └── 0,1: see enum PLAYER
+ *         └── 1...6: see enum SHAPE
+ *             └── random 64-bit integer
+ * 
+ * playerZ: random 64-bit integer
+ * 
+ * IMPORTANT: Must call init_board2_NUM_tableZ_hash() at the start of every program!
+ */
+unsigned long long int tableZ[AREA][2][MAX_SHAPE] = {{{0}}};
+unsigned long long int playerZ = 0;
+
+/**
+ * Transposition table.
+ * key = hash; value = score
+ */
+std::unordered_map<int, int> tableT = {};
 
 const int K_VECTOR[8] = {
     +1,             // (1, 0)
-    +1 + SIZE,      // (1, 1)
-    +SIZE,          // (0, 1)
-    -1 + SIZE,      // (-1, 1)
+    +1 + WIDTH,     // (1, 1)
+    +WIDTH,         // (0, 1)
+    -1 + WIDTH,     // (-1, 1)
     -1,             // (-1, 0)
-    -1 - SIZE,      // (-1, -1)
-    -SIZE,          // (0, -1)
-    +1 - SIZE       // (1, -1)
+    -1 - WIDTH,     // (-1, -1)
+    -WIDTH,         // (0, -1)
+    +1 - WIDTH      // (1, -1)
 };
 const int N_VECTOR[8] = {
-    2 + SIZE,       // (2, 1)
-    1 + 2*SIZE,     // (1, 2)
-   -1 + 2*SIZE,     // (-1, 2)
-   -2 + SIZE,       // (-2, 1)
-   -2 - SIZE,       // (-2, -1)
-   -1 - 2*SIZE,     // (-1, -2)
-    1 - 2*SIZE,     // (1, -2)
-    2 - SIZE        // (2, -1)
+    2 + WIDTH,      // (2, 1)
+    1 + 2*WIDTH,    // (1, 2)
+   -1 + 2*WIDTH,    // (-1, 2)
+   -2 + WIDTH,      // (-2, 1)
+   -2 - WIDTH,      // (-2, -1)
+   -1 - 2*WIDTH,    // (-1, -2)
+    1 - 2*WIDTH,    // (1, -2)
+    2 - WIDTH       // (2, -1)
 };
 const int B_VECTOR[4] = {
-    +1 + SIZE,  // down-right
-    +1 - SIZE,  // up-right
-    -1 + SIZE,  // down-left
-    -1 - SIZE   // up-left
+    +1 + WIDTH,     // down-right
+    +1 - WIDTH,     // up-right
+    -1 + WIDTH,     // down-left
+    -1 - WIDTH      // up-left
 };
 const int R_VECTOR[4] = {
-    +1,         // right
-    -1,         // left
-    +SIZE,      // down
-    -SIZE       // up
+    +1,             // right
+    -1,             // left
+    +WIDTH,         // down
+    -WIDTH          // up
 };
 // no Q_VECTOR since it's a combination of B_VECTOR & R_VECTOR
 
@@ -126,37 +158,58 @@ const char char_of[2][MAX_SHAPE] = {
  */
 inline bool player_of(int tile)
 {
-    return tile / 10; // extract digit1
+    return tile / 100; // extract digit1
 }
 
 inline int shape_of(int tile)
 {
-    return tile % 10; // extract digit2
+    return (tile / 10) % 10; // extract digit2
 }
 
-void init_board2()
+inline int indB2_of(int tile)
 {
-    // initialize all to -1
-    for (bool player : {BLACK, WHITE})
-    {
-        for (int shape = 1; shape < MAX_SHAPE; shape++)
-        {
-            for (int ind = 0; ind < NUM[shape]; ind++)
-                board2[player][shape][ind] = -1;
-        }
-    }
+    return tile % 10; // extract digit3
+}
 
-    // populate from main board
+/**
+ * Initialize board2, NUM, tableZ, and hash.
+ */
+void init_board2_NUM_tableZ_hash()
+{
     for (int ind = 0; ind < AREA; ind++)
     {
+        // board2, NUM
         int tile = board[ind];
         if (tile)
         {
             bool player = player_of(tile);
             int shape = shape_of(tile);
-            int* begin = board2[player][shape];
-            int* end = begin + NUM[shape];
-            *std::find(begin, end, -1) = ind;
+            board2[player][shape][indB2_of(tile)] = ind;
+
+            if (player)  // assume # of black pieces = # of white pieces, so count # of white pieces is enough
+                NUM[shape]++;
+        }
+
+        // tableZ
+        for (bool player : {BLACK, WHITE})
+        {
+            for (int shape = 1; shape < MAX_SHAPE; shape++)
+                tableZ[ind][player][shape] = rng();
+        }
+    }
+    // playerZ
+    playerZ = rng();
+
+    // hash
+    for (bool player : {BLACK, WHITE})
+    {
+        for (int shape = 1; shape < MAX_SHAPE; shape++)
+        {
+            for (int indB2 = 0; indB2 < NUM[shape]; indB2++)
+            {
+                int ind = board2[player][shape][indB2];
+                hash ^= tableZ[ind][player][shape];
+            }
         }
     }
 }
@@ -172,41 +225,91 @@ inline int rel_foward(bool player)
 
 inline int x_of(int ind)
 {
-    return ind % SIZE;
+    return ind % WIDTH;
 }
 
 inline int y_of(int ind)
 {
-    return ind / SIZE;
+    return ind / WIDTH;
 }
 
 /**
- * @return { captured tile, pointer to captured tile in board2 }
- * Returned value is fed into parameter: restore when undoing moves.
+ * @return captured tile.
+ * When undoing moves,
+ * 1. returned value is directly fed into parameter: restore.
+ * 2. ind_i and ind_f switch places.
  */
-inline std::pair<int, int*> move(bool player, int shape, int indB2, int ind_i, int ind_f, std::pair<int, int*> restore = {0, nullptr})
-/// TODO: pawn promotion
+inline int move(bool player, int shape, int indB2, int ind_i, int ind_f, int restore = 0)
 {
+    /// TODO: pawn promotion
+
     int capture = board[ind_f];
-    int* ptr = nullptr;
     if (capture)
     {
-        int num = NUM[shape_of(capture)];
-        ptr = board2[!player][shape_of(capture)];
-        if (num > 1)
-            ptr = std::find(ptr, ptr + num, ind_f);
-
-        *ptr -= AREA; // move ind_f outside board
+        int shape_capture = shape_of(capture);
+        board2[!player][shape_capture][indB2_of(capture)] -= AREA; // move ind_f outside board
+        hash ^= tableZ[ind_f][!player][shape_capture];
     }
-    else if (restore.first) // if tile to restore exists, pointer must exist
+
+    else if (restore) // if tile to restore exists
     {
-        *restore.second += AREA; // move ind_f outside board back inside
+        int shape_restore = shape_of(restore);
+        board2[!player][shape_restore][indB2_of(restore)] += AREA; // move ind_f outside board back inside
+        hash ^= tableZ[ind_i][!player][shape_restore];
     }
 
     board2[player][shape][indB2] = ind_f;
+
+    // add to final tile
     board[ind_f] = board[ind_i];
-    board[ind_i] = restore.first;
-    return {capture, ptr};
+    hash ^= tableZ[ind_f][player][shape];
+    
+    // remove from initial tile
+    board[ind_i] = restore;
+    hash ^= tableZ[ind_i][player][shape];
+
+    hash ^= playerZ;  // switch player of hash
+
+        if (board2[true][6][0] == 50)
+        {
+            std::cout << "board2:" << std::endl;
+
+            for (bool p : {BLACK, WHITE})
+            {
+                std::cout << "  ";
+                for (int s = 1; s < MAX_SHAPE; s++)
+                {
+                    std::cout << '[' << char_of[p][s] << "]=";
+                    for (int indB2 = 0; indB2 < NUM[s]; indB2++)
+                    {
+                        int ind = board2[p][s][indB2];
+                        std::cout << ind << ",";
+                    }
+                    std::cout << "; ";
+                }
+                std::cout << std::endl;
+            }
+            std::cout << "   +-------------BOT-------------+" << std::endl;
+            for (int ind = 0; ind < AREA; ind++)
+            {
+                if (x_of(ind) > 7) // sentinels
+                {
+                    std::cout << " . . | " << ind-1 << std::endl;
+                    ind++;
+                }
+                else
+                {
+                    if (x_of(ind) == 0)
+                        std::cout << std::setw(2) << ind << " |";
+
+                    int tile = board[ind];
+                    std::cout << std::setw(3) << char_of[player_of(tile)][shape_of(tile)];
+                }
+            }
+            std::cout << "   +-------------YOU-------------+" << std::endl;
+            system("PAUSE");
+        }
+    return capture;
 }
 
 /**
@@ -274,7 +377,7 @@ std::vector<int> gen_moves(bool player, int shape, int ind_i)
     }
     if (shape == PAWN)
     {
-        ind_i += rel_foward(player)*SIZE;
+        ind_i += rel_foward(player)*WIDTH;
         
         /// TODO: remove once added promotion
         if (ind_i < 0 || AREA <= ind_i)
@@ -296,7 +399,7 @@ std::vector<int> gen_moves(bool player, int shape, int ind_i)
         
             if (y_of(ind_i) == 1 || y_of(ind_i) == 6) // if pawn can step 2
             {
-                ind_i += rel_foward(player)*SIZE;
+                ind_i += rel_foward(player)*WIDTH;
                 if (!board[ind_i])
                     moves.push_back(ind_i);
             }
@@ -334,7 +437,7 @@ bool is_attacked(bool player, int ind)
     // check for enemy pawns
     // Pretend "I" am a pawn and check where "I" can capture.
     const int PAWN_e = !player*10 + PAWN;
-    ind_e = ind + rel_foward(player)*SIZE;
+    ind_e = ind + rel_foward(player)*WIDTH;
     if ((is_play_area(ind_e + 1) && board[ind_e + 1] == PAWN_e) ||
         (is_play_area(ind_e - 1) && board[ind_e - 1] == PAWN_e))
         return 1;
@@ -401,8 +504,13 @@ bool is_attacked(bool player, int ind)
 
 void out_board()
 {
+    std::cout << "Hash:" << std::endl << "  " << hash << std::endl;
+
+    std::cout << "board2:" << std::endl;
+
     for (bool player : {BLACK, WHITE})
     {
+        std::cout << "  ";
         for (int shape = 1; shape < MAX_SHAPE; shape++)
         {
             std::cout << '[' << char_of[player][shape] << "]=";
@@ -414,8 +522,11 @@ void out_board()
             std::cout << "; ";
         }
         std::cout << std::endl;
+    }
 
-        std::cout << "Tile(s) player" << player << " attacks: ";
+    for (bool player : {BLACK, WHITE})
+    {
+        std::cout << "Player" << player << " attacks: " << std::endl << "  ";
         for (int ind = 0; ind < AREA; ind++)
         {
             int tile = board[ind];
@@ -446,7 +557,7 @@ void out_board()
 }
 
 /**
- * Minimax + Depth-adjusted Score + AlphaBeta Prunning + Transposition Table
+ * Minimax + Depth-adjusted Score + AlphaBeta Prunning + Zobrist Hashed Transposition Table
  * In first call, use depth = 1, alpha = INT_MIN, beta = INT_MAX.
  * @return: -depth if stalemate. INT_MAX-depth if checked by MAXER. INT_MIN-depth if checked by MINER.
  */
@@ -466,7 +577,7 @@ int minimax(bool player, int depth, int alpha, int beta)
             {
                 for (int ind_f : gen_moves(player, shape, ind_i))
                 {
-                    std::pair<int, int*> capture = move(player, shape, indB2, ind_i, ind_f);
+                    int capture = move(player, shape, indB2, ind_i, ind_f);
 
                     if (!is_attacked(player, board2[player][KING][0]))
                     {
@@ -517,7 +628,7 @@ void bot_move(bool bot)
                 std::cout << "Possible {move, score} from " << ind_i << ": ";
                 for (int ind_f : gen_moves(bot, shape, ind_i))
                 {
-                    std::pair<int, int*> capture = move(bot, shape, indB2, ind_i, ind_f);
+                    int capture = move(bot, shape, indB2, ind_i, ind_f);
 
                     if (!is_attacked(bot, board2[bot][KING][0]))
                     {
@@ -605,7 +716,7 @@ int validate(int ind_i, int ind_f)
             if (dx != 0)
                 return 1;
             
-            if (dy > 1 + (y_of(ind_i) == 1 || y_of(ind_i) == 6)) // if pawn at starting line: dy > 1+1; else: dy>1+0
+            if (dy > 1 + (y_of(ind_i) == 1 || y_of(ind_i) == 6)) // if pawn at starting line: dy > 1+(1); else: dy>1+(0)
                 return 1;
         }
         else if (dx != 1 || dy != 1) // && not empty
@@ -636,28 +747,17 @@ void console_play()
                 std::cout << "Invalid move, broken rule #" << invalid << std::endl;
         }
         while (invalid);
-        // find corresponding indB2
-        for (int shape = 1; shape < MAX_SHAPE; shape++)
-        {
-            for (int indB2 = 0; indB2 < NUM[shape]; indB2++)
-            {
-                if (board2[1][shape][indB2] == ind_i)
-                {
-                    move(1, shape, indB2, ind_i, ind_f);
-                    break;
-                }
-            }
-        }
+        move(WHITE, shape_of(board[ind_i]), indB2_of(board[ind_i]), ind_i, ind_f);
         std::cout << std::endl;
 
-        bot_move(0);
+        bot_move(BLACK);
         std::cout << std::endl;
     }
 }
 
 int main()
 {
-    init_board2();
+    init_board2_NUM_tableZ_hash();
     console_play();
     return 0;
 }
