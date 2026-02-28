@@ -38,8 +38,7 @@ int NUM[MAX_SHAPE] = {0};
  *     └── points worth of each shape
  */
 const int WORTH[MAX_SHAPE] = { 0, 1, 3, 3, 5, 9, 0 };
-int MAX_WORTH = 0; // sum of number of pieces * points worth of each shape
-
+int MAX_WORTH_NOPAWN = 0; // sum of number of pieces of each shape except pawns * points worth of each shape
 const int HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
 
 /** 
@@ -294,9 +293,8 @@ const int ENDGAME_BONUS[MAX_SHAPE][AREA] = {
 int midgame_val[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 int endgame_val[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 
-const bool MAXER = 1, // white
-    MINER = 0; // black
-const int MAX_DEPTH = 5;
+const bool MAXER = WHITE, MINER = BLACK;
+const int MAX_DEPTH = 7;
 
 /**
  * char_of
@@ -360,7 +358,7 @@ inline bool is_play_area(int ind)
 /**
  * Initialize board2, NUM, MAX_WORTH, Ztable, hash, midgame_val, and endgame_val.
  */
-void init_board2_NUM_MAX_WORTH_Ztable_hash_midgame_endgame_val()
+void init_all()
 {
     // board2, NUM
     for (int ind = 0; ind < AREA; ind++)
@@ -378,9 +376,9 @@ void init_board2_NUM_MAX_WORTH_Ztable_hash_midgame_endgame_val()
     }
 
     // MAX_WORTH
-    for (int shape = PAWN; shape < MAX_SHAPE; shape++)
+    for (int shape = KNIGHT; shape < KING; shape++)
     {
-        MAX_WORTH += WORTH[shape]*NUM[shape];
+        MAX_WORTH_NOPAWN += WORTH[shape]*NUM[shape];
     }
 
     // Ztable
@@ -732,11 +730,12 @@ void out_board(bool has_Ttable = false, bool has_hash = false, bool has_board2 =
 
 int approx(bool player)
 {
-    int midgame[2] = {0, 0}, endgame[2] = {0, 0}, worths = 0; // sum of worth of remaining pieces
+    int midgame[2] = {0, 0}, endgame[2] = {0, 0};
+    float worths = 0; // sum of worth of remaining pieces
 
     for (int player = BLACK; player <= WHITE; player++)
     {
-        for (int shape = PAWN; shape < MAX_SHAPE; shape++)
+        for (int shape = KNIGHT; shape < KING; shape++) // start from knight since pawn is insignificant
         {
             for (int indB2 = 0; indB2 < NUM[shape]; indB2++)
             {
@@ -753,28 +752,32 @@ int approx(bool player)
 
     int midgame_score = midgame[player] - midgame[!player],
         endgame_score = endgame[player] - endgame[!player];
-    return endgame_score - (worths/MAX_WORTH)*(endgame_score - midgame_score); // linear interpolation
+
+    return endgame_score - (worths/MAX_WORTH_NOPAWN)*(endgame_score - midgame_score); // linear interpolation
 }
 
 /**
- * Minimax + Piece-Square Table Score + Depth-adjusted Score + AlphaBeta Prunning + Zobrist Hashed Transposition Table
+ * Minimax + Piece-Square Table Score + AlphaBeta Prunning + Zobrist Hashed Transposition Table
  * In first call, use depth = 1, alpha = INT_MIN, beta = INT_MAX.
  * @return
- *      n ∈ [-MAX_WORTH, MAX_WORTH] if over MAX_DEPTH || draw.
- *      n = INT_MAX-depth if checked by MAXER.
- *      n = INT_MIN-depth if checked by MINER.
+ *      n ∈ [-MAX_WORTH_NOPAWN, MAX_WORTH_NOPAWN] if over MAX_DEPTH || draw.
+ *      n = INT_MAX if checked by MAXER.
+ *      n = INT_MIN if checked by MINER.
  */
 int minimax(bool player, int depth, int alpha, int beta)
 {
+    if (Ttable.find(hash) != Ttable.end())
+        return Ttable[hash];
+
     if (depth > MAX_DEPTH)
-        return 0;
+        return approx(player) * (player == MAXER ? 1 : -1);
 
-    // if (Ttable.find(hash) != Ttable.end())
-    //     return Ttable[hash];
+    int capture = 0, score = 0, child_score = 0;
+    bool is_checked = false;
+
+    if (is_attacked(player, board2[player][KING][0]))
+        is_checked = true;
     
-    int child_score = 0;
-    bool has_move = false;
-
     for (int shape = PAWN; shape < MAX_SHAPE; shape++)
     {
         for (int indB2 = 0; indB2 < NUM[shape]; indB2++)
@@ -784,28 +787,30 @@ int minimax(bool player, int depth, int alpha, int beta)
             {
                 for (int ind_f : gen_moves(player, shape, ind_i))
                 {
-                    int capture = move(player, shape, indB2, ind_i, ind_f);
-
-                    if (shape_of(board[55]) == 1 && shape_of(board[46]) == 1 && shape_of(board[47]) == 5)
+                    capture = move(player, shape, indB2, ind_i, ind_f);
+                    if (is_checked)
                     {
-                        out_board();
+                        if (is_attacked(player, board2[player][KING][0]))
+                        {
+                            move(player, shape, indB2, ind_f, ind_i, capture); // undo move
+                            continue;
+                        }
+                        is_checked = false;
                     }
+                    
+                    child_score = minimax(!player, depth+1, alpha, beta);
 
-                    if (!is_attacked(player, board2[player][KING][0]))
+                    if (player == MAXER)
+                        alpha = std::max(alpha, child_score);
+                    else
+                        beta = std::min(beta, child_score);
+
+                    if (beta <= alpha)
                     {
-                        has_move = true;
-                        child_score = minimax(!player, depth+1, alpha, beta);
-
-                        if (player == MAXER)
-                            alpha = std::max(alpha, child_score);
-                        else
-                            beta = std::min(beta, child_score);
-
-                        // if (beta <= alpha)
-                        // {
-                        //     move(player, shape, indB2, ind_f, ind_i, capture); // undo move
-                        //     return (player == MAXER) ? alpha : beta;
-                        // }
+                        move(player, shape, indB2, ind_f, ind_i, capture); // undo move
+                        score = (player == MAXER) ? alpha : beta;
+                        Ttable[hash] = score;
+                        return score;
                     }
                     move(player, shape, indB2, ind_f, ind_i, capture); // undo move
                 }
@@ -813,71 +818,63 @@ int minimax(bool player, int depth, int alpha, int beta)
         }
     }
 
-    if (has_move)
-    {
-        // Ttable[hash] = score;
-        return (player == MAXER) ? alpha : beta;
-    }
-
-    // no move
-    else if (is_attacked(player, board2[player][KING][0])) // checkmated
-        return (player == MAXER) ? INT_MIN + depth : INT_MAX - depth;
-
-    else // draw
-        return 0;
+    if (is_checked) // checkmate
+        score = (player == MAXER) ? INT_MIN : INT_MAX;
+    else
+        score = (player == MAXER) ? alpha : beta;
+    Ttable[hash] = score;
+    return score;
 }
 
 /**
  * Behave the same as minimax(), except with recording the best move and without recording to Ttable and AlphaBeta Prunning.
  */
-void bot_move(bool bot)
+void bot_move(bool player)
 {
-    int best_indB2 = 0, best_shape = 0, best_ind_i = 0, best_ind_f = 0, best_score = (bot == MAXER) ? INT_MIN : INT_MAX;
+    int capture = 0, child_score = 0, best_indB2 = 0, best_shape = 0, best_ind_i = 0, best_ind_f = 0, best_score = (player == MAXER) ? INT_MIN : INT_MAX;
 
     for (int shape = PAWN; shape < MAX_SHAPE; shape++)
     {
         for (int indB2 = 0; indB2 < NUM[shape]; indB2++)
         {
-            int ind_i = board2[bot][shape][indB2];
+            int ind_i = board2[player][shape][indB2];
             if (ind_i >= 0) // if not captured
             {
                 std::cout << "Possible {move, score} from " << ind_i << ": ";
-                for (int ind_f : gen_moves(bot, shape, ind_i))
+                for (int ind_f : gen_moves(player, shape, ind_i))
                 {
-                    int capture = move(bot, shape, indB2, ind_i, ind_f);
-
-                    if (!is_attacked(bot, board2[bot][KING][0]))
+                    capture = move(player, shape, indB2, ind_i, ind_f),
+                    
+                    child_score = minimax(!player, 1, INT_MIN, INT_MAX);
+                    
+                    std::cout << "{" << ind_f << ", " << child_score << "}, ";
+                    if (player == MAXER)
                     {
-                        int score = minimax(!bot, 1, INT_MIN, INT_MAX);
-                        std::cout << "{" << ind_f << ", " << score << "}, ";
-                        if (bot == MAXER)
-                        {
-                            if (score > best_score)
-                            {
-                                best_indB2 = indB2;
-                                best_shape = shape;
-                                best_ind_i = ind_i;
-                                best_ind_f = ind_f;
-                                best_score = score;
-                            }
-                        }
-                        else if (score < best_score) // if MINER
+                        if (child_score > best_score)
                         {
                             best_indB2 = indB2;
                             best_shape = shape;
                             best_ind_i = ind_i;
                             best_ind_f = ind_f;
-                            best_score = score;
+                            best_score = child_score;
                         }
                     }
-                    move(bot, shape, indB2, ind_f, ind_i, capture); // undo move
+                    else if (child_score < best_score) // if MINER
+                    {
+                        best_indB2 = indB2;
+                        best_shape = shape;
+                        best_ind_i = ind_i;
+                        best_ind_f = ind_f;
+                        best_score = child_score;
+                    }
+                    move(player, shape, indB2, ind_f, ind_i, capture); // undo move
                 }
                 std::cout << std::endl;
             }
         }
     }
     std::cout << "Chosen move: " << best_ind_i << " to " << best_ind_f << std::endl;
-    move(bot, best_shape, best_indB2, best_ind_i, best_ind_f);
+    move(player, best_shape, best_indB2, best_ind_i, best_ind_f);
 }
 
 /**
@@ -973,8 +970,8 @@ void console_play()
 
 int main()
 {
-    // IMPORTANT: Must call init_board2_NUM_MAX_WORTH_Ztable_hash_midgame_endgame_val() at the start of every program!
-    init_board2_NUM_MAX_WORTH_Ztable_hash_midgame_endgame_val();
+    // IMPORTANT: Must call init_all() at the start of every program!
+    init_all();
     console_play();
     return 0;
 }
