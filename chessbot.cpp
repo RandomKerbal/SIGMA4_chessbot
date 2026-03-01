@@ -98,8 +98,10 @@ unsigned long long int Zplayer = 0;
 /**
  * Transposition table.
  * index = hash % TTABLE_SZ; value = { hash, score }
+ * 
+ * 2 or more hash may have the same index.
  */
-const int TTABLE_SZ = std::pow(2, 24);
+const int TTABLE_SZ = std::pow(2, 21);
 std::vector<std::pair<unsigned long long int, int>> Ttable(TTABLE_SZ, {0, 0});
 
 const int K_VECTOR[8] = {
