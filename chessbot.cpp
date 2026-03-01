@@ -12,7 +12,7 @@ enum PLAYER {
     BLACK = 0, MINER = BLACK, WHITE = 1, MAXER = WHITE,
     MAX_PLAYER = 2 // max number of players
 };
-const short MAX_DEPTH = 6;
+const short MAX_DEPTH = 5;
 
 /**
  * IMPORTANT: SHAPE 0 is undefined. It starts at 1 to sync with shapes on board.
@@ -27,7 +27,7 @@ enum SHAPE {
 /**
  * NUM
  * └── 1...6: see enum SHAPE
- *     └── number of pieces of each shape in main board. Starting number of black pieces must = white pieces.
+ *     └── number of pieces of each shape in main board. If starting number of black pieces != white pieces, the higher number.
  */
 short NUM[MAX_SHAPE] = {0};
 
@@ -77,7 +77,7 @@ short board[AREA] = {
  * 1. Do not need to iterate over empty/enemy tiles in minimax().
  * 2. Quick access of enemy tiles index in is_attacked().
  */
-short board2[MAX_PLAYER][MAX_SHAPE][8] = {{{0}}};
+short board2[MAX_PLAYER][MAX_SHAPE][8] = {{{-1}}};
 
 /**
  * hash of board
@@ -361,11 +361,22 @@ inline bool is_play_area(short ind)
 }
 
 /**
- * Initialize board2, NUM, MAX_WORTH, Zplayer, Ztable, hash, midgame_val, and endgame_val.
+ * Initialize NUM, MAX_WORTH, board2, Zplayer, Ztable, hash, midgame_val, and endgame_val.
  */
 void init_all()
 {
+    // fill board2 with -1
+    for (short player = BLACK; player <= WHITE; player++)
+    {
+        for (short shape = PAWN; shape < MAX_SHAPE; shape++)
+        {
+            for (short &ind : board2[player][shape])
+                ind = -1;
+        }
+    }
+
     // board2, NUM
+    short num_temp[2][MAX_SHAPE] = {{0}};
     for (short ind = 0; ind < AREA; ind++)
     {
         short tile = board[ind];
@@ -374,17 +385,16 @@ void init_all()
             bool player = player_of(tile);
             short shape = shape_of(tile);
             board2[player][shape][indB2_of(tile)] = ind;
-
-            if (player)  // only count num of white pieces
-                NUM[shape]++;
+            num_temp[player][shape] ++;
         }
     }
+    for (int shape = PAWN; shape < MAX_SHAPE; shape++)
+        NUM[shape] = std::max(num_temp[BLACK][shape], num_temp[WHITE][shape]);
 
     // MAX_WORTH
     for (short shape = KNIGHT; shape < KING; shape++)
-    {
         MAX_WORTH_NOPAWN += WORTH[shape]*NUM[shape];
-    }
+            
 
     // Zplayer, Ztable
     Zplayer = rng();
@@ -535,7 +545,7 @@ std::vector<short> gen_moves(bool player, short shape, short ind_i)
             ind = ind_i + dy;
 
             // capture moves
-            for (short dx = -1; dx <= 1; dx = dx + 2)
+            for (short dx = -1; dx <= 1; dx += 2)
             {
                 short ind_f = ind + dx;
                 tile = board[ind_f];
@@ -588,11 +598,13 @@ bool is_attacked(bool player, short ind)
 
     // check for enemy pawns
     // Pretend I'm a pawn and check where I can capture.
-    const short PAWN_e = !player*10 + PAWN;
     ind_e = ind + rel_foward(player);
-    if ((is_play_area(ind_e + 1) && board[ind_e + 1] == PAWN_e) ||
-        (is_play_area(ind_e - 1) && board[ind_e - 1] == PAWN_e))
-        return 1;
+    for (short dx = -1; dx <= 1; dx += 2)
+    { 
+        short tile = board[ind_e + dx];
+        if (player_of(tile) == !player && shape_of(tile) == PAWN)
+            return 1;
+    }
 
     // check for enemy knights
     // Iterate over all enemy knights.
@@ -834,7 +846,7 @@ short minimax(bool player, short depth, short alpha, short beta)
  * Behave the same as minimax(), except with recording the best move and without recording to Ttable and AlphaBeta Prunning.
  * @return 0: bot has move(s). 1: bot is checkmated. 2: bot is stalemated.
  */
-int bot_move(bool player)
+short bot_move(bool player)
 {
     short capture = 0, child_score = 0, best_indB2 = 0, best_shape = 0, best_ind_i = 0, best_ind_f = 0, best_score = (player) ? SHRT_MIN : SHRT_MAX;
     bool has_move = false, is_maxer = player;
@@ -982,7 +994,7 @@ void console_play()
         move(WHITE, shape_of(board[ind_i]), indB2_of(board[ind_i]), ind_i, ind_f);
         std::cout << std::endl;
 
-        int outcome = bot_move(BLACK);
+        short outcome = bot_move(BLACK);
         if (outcome == 1)
             std::cout << "You won!\nPC: NOOO MY DIGNITY!" << std::endl;
         else if (outcome == 2)
