@@ -361,7 +361,7 @@ inline bool is_play_area(short ind)
 }
 
 /**
- * Initialize board2, NUM, MAX_WORTH, Ztable, hash, midgame_val, and endgame_val.
+ * Initialize board2, NUM, MAX_WORTH, Zplayer, Ztable, hash, midgame_val, and endgame_val.
  */
 void init_all()
 {
@@ -672,11 +672,10 @@ void out_board(bool has_Ttable = false, bool has_hash = false, bool has_board2 =
             }
             else
             {
-                std::cout << "  ..." << std::endl;
+                std::cout << "  ... (" << TTABLE_SZ - 10 << " more)" << std::endl;
                 break;
             }
         }
-        std::cout << "Ttable size: " << Ttable.size() << std::endl;
     }
 
     if (has_hash)
@@ -833,7 +832,7 @@ short minimax(bool player, short depth, short alpha, short beta)
 
 /**
  * Behave the same as minimax(), except with recording the best move and without recording to Ttable and AlphaBeta Prunning.
- * @return whether the bot is checkmated.
+ * @return 0: bot has move(s). 1: bot is checkmated. 2: bot is stalemated.
  */
 int bot_move(bool player)
 {
@@ -884,12 +883,17 @@ int bot_move(bool player)
             }
         }
     }
-    if (!has_move && is_attacked(player, board2[player][KING][0])) // checkmated
+    if (has_move)
+    {
+        std::cout << "Chosen move: " << best_ind_i << " to " << best_ind_f << std::endl;
+        move(player, best_shape, best_indB2, best_ind_i, best_ind_f);
+        return 0;
+    }
+    else if (!has_move && is_attacked(player, board2[player][KING][0])) // checkmated
         return 1;
-
-    std::cout << "Chosen move: " << best_ind_i << " to " << best_ind_f << std::endl;
-    move(player, best_shape, best_indB2, best_ind_i, best_ind_f);
-    return 0;
+    
+    else
+        return 2;
 }
 
 /**
@@ -978,7 +982,13 @@ void console_play()
         move(WHITE, shape_of(board[ind_i]), indB2_of(board[ind_i]), ind_i, ind_f);
         std::cout << std::endl;
 
-        bot_move(BLACK);
+        int outcome = bot_move(BLACK);
+        if (outcome == 1)
+            std::cout << "You won!\nPC: NOOO MY DIGNITY!" << std::endl;
+        else if (outcome == 2)
+            std::cout << "Ended in draw.\nPC: You\'ll never win ... not satisfied? Replay!" << std::endl;
+        if (outcome)
+            break;
         std::cout << std::endl;
     }
 }
