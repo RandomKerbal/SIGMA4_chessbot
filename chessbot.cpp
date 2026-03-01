@@ -6,12 +6,13 @@
 #include <iostream>
 #include <iomanip>
 
-std::mt19937_64 rng(67);
+std::mt19937_64 rng(0);
 
 enum PLAYER {
-    BLACK = 0, WHITE = 1,
+    BLACK = 0, MINER = BLACK, WHITE = 1, MAXER = WHITE,
     MAX_PLAYER = 2 // max number of players
 };
+const short MAX_DEPTH = 6;
 
 /**
  * IMPORTANT: SHAPE 0 is undefined. It starts at 1 to sync with shapes on board.
@@ -101,8 +102,13 @@ unsigned long long Zplayer = 0;
  * 
  * 2 or more hash may have the same index.
  */
-const short TTABLE_SZ = std::pow(2, 21);
-std::vector<std::pair<unsigned long long, short>> Ttable(TTABLE_SZ, {0, 0});
+const unsigned int TTABLE_SZ = std::pow(2, 22);
+struct Ttable_entry {
+    unsigned long long hash = 0;
+    short score = 0;
+    short depth = 0;
+};
+std::vector<Ttable_entry> Ttable(TTABLE_SZ, {0, 0, 0});
 
 const short K_VECTOR[8] = {
     +1,             // (1, 0)
@@ -294,9 +300,6 @@ const short ENDGAME_BONUS[MAX_SHAPE][AREA] = {
  */
 short midgame_val[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 short endgame_val[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
-
-const bool MAXER = WHITE, MINER = BLACK;
-const short MAX_DEPTH = 7;
 
 /**
  * char_of
@@ -657,13 +660,13 @@ void out_board(bool has_Ttable = false, bool has_hash = false, bool has_board2 =
     {
         std::cout << "Ttable:" << std::endl;
         short i = 0;
-        for (std::pair<unsigned long long, short> hashscore : Ttable)
+        for (Ttable_entry entry : Ttable)
         {
             if (i < 10)
             {
-                if (hashscore.first)
+                if (entry.hash)
                 {
-                    std::cout << "  " << hashscore.first << ": " << hashscore.second << '\n';
+                    std::cout << "  " << entry.hash << ", " << entry.score << ", " << entry.depth << '\n';
                     i++;
                 }
             }
@@ -764,25 +767,23 @@ short approx(bool player)
  * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Hashed Transposition Table
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
- *      n ∈ [-MAX_WORTH_NOPAWN, MAX_WORTH_NOPAWN] if over MAX_DEPTH || draw.
+ *      n = 0 if draw.
+ *      n ∈ [-MAX_WORTH_NOPAWN, 0) U (0, MAX_WORTH_NOPAWN] if over MAX_DEPTH.
  *      n = SHRT_MAX if checked by MAXER.
  *      n = SHRT_MIN if checked by MINER.
  */
 short minimax(bool player, short depth, short alpha, short beta)
 {
-    std::pair<unsigned long long, short> &ind_Ttable = Ttable[hash % TTABLE_SZ];
-    if (ind_Ttable.first == hash)
-        return ind_Ttable.second;
-
-    if (depth > MAX_DEPTH)
-        return approx(player) * (player == MAXER ? 1 : -1);
+    Ttable_entry &entry = Ttable[hash % TTABLE_SZ];
+    if (entry.hash == hash)
+        return entry.score;
 
     short capture = 0, score = 0, child_score = 0;
-    bool is_checked = false;
+    bool has_move = false, is_maxer = player;
 
-    if (is_attacked(player, board2[player][KING][0]))
-        is_checked = true;
-    
+    if (depth > MAX_DEPTH)
+        return approx(player) * (is_maxer ? 1 : -1);
+
     for (short shape = PAWN; shape < MAX_SHAPE; shape++)
     {
         for (short indB2 = 0; indB2 < NUM[shape]; indB2++)
@@ -793,29 +794,25 @@ short minimax(bool player, short depth, short alpha, short beta)
                 for (short ind_f : gen_moves(player, shape, ind_i))
                 {
                     capture = move(player, shape, indB2, ind_i, ind_f);
-                    if (is_checked)
+
+                    if (!is_attacked(player, board2[player][KING][0]))
                     {
-                        if (is_attacked(player, board2[player][KING][0]))
+                        has_move = true;
+                        child_score = minimax(!player, depth+1, alpha, beta);
+
+                        if (is_maxer)
+                            alpha = std::max(alpha, child_score);
+                        else
+                            beta = std::min(beta, child_score);
+
+                        if (beta <= alpha)
                         {
                             move(player, shape, indB2, ind_f, ind_i, capture); // undo move
-                            continue;
+                            score = (is_maxer) ? alpha : beta;
+                            if (depth > entry.depth)
+                                entry = {hash, score, depth};
+                            return score;
                         }
-                        is_checked = false;
-                    }
-                    
-                    child_score = minimax(!player, depth+1, alpha, beta);
-
-                    if (player == MAXER)
-                        alpha = std::max(alpha, child_score);
-                    else
-                        beta = std::min(beta, child_score);
-
-                    if (beta <= alpha)
-                    {
-                        move(player, shape, indB2, ind_f, ind_i, capture); // undo move
-                        score = (player == MAXER) ? alpha : beta;
-                        ind_Ttable = {hash, score};
-                        return score;
                     }
                     move(player, shape, indB2, ind_f, ind_i, capture); // undo move
                 }
@@ -823,20 +820,25 @@ short minimax(bool player, short depth, short alpha, short beta)
         }
     }
 
-    if (is_checked) // checkmate
-        score = (player == MAXER) ? SHRT_MIN : SHRT_MAX;
-    else
-        score = (player == MAXER) ? alpha : beta;
-    ind_Ttable = {hash, score};
+    if (has_move)
+        score = (is_maxer) ? alpha : beta;
+
+    else if (is_attacked(player, board2[player][KING][0])) // checkmated
+        score = (is_maxer) ? SHRT_MIN : SHRT_MAX;
+    
+    if (depth > entry.depth)
+        entry = {hash, score, depth};
     return score;
 }
 
 /**
  * Behave the same as minimax(), except with recording the best move and without recording to Ttable and AlphaBeta Prunning.
+ * @return whether the bot is checkmated.
  */
-void bot_move(bool player)
+int bot_move(bool player)
 {
-    short capture = 0, child_score = 0, best_indB2 = 0, best_shape = 0, best_ind_i = 0, best_ind_f = 0, best_score = (player == MAXER) ? SHRT_MIN : SHRT_MAX;
+    short capture = 0, child_score = 0, best_indB2 = 0, best_shape = 0, best_ind_i = 0, best_ind_f = 0, best_score = (player) ? SHRT_MIN : SHRT_MAX;
+    bool has_move = false, is_maxer = player;
 
     for (short shape = PAWN; shape < MAX_SHAPE; shape++)
     {
@@ -848,14 +850,26 @@ void bot_move(bool player)
                 std::cout << "Possible {move, score} from " << ind_i << ": ";
                 for (short ind_f : gen_moves(player, shape, ind_i))
                 {
-                    capture = move(player, shape, indB2, ind_i, ind_f),
+                    capture = move(player, shape, indB2, ind_i, ind_f);
                     
-                    child_score = minimax(!player, 1, SHRT_MIN, SHRT_MAX);
-                    
-                    std::cout << "{" << ind_f << ", " << child_score << "}, ";
-                    if (player == MAXER)
+                    if (!is_attacked(player, board2[player][KING][0]))
                     {
-                        if (child_score > best_score)
+                        has_move = true;
+                        child_score = minimax(!player, 1, SHRT_MIN, SHRT_MAX);
+                    
+                        std::cout << "{" << ind_f << ", " << child_score << "}, ";
+                        if (is_maxer)
+                        {
+                            if (child_score > best_score)
+                            {
+                                best_indB2 = indB2;
+                                best_shape = shape;
+                                best_ind_i = ind_i;
+                                best_ind_f = ind_f;
+                                best_score = child_score;
+                            }
+                        }
+                        else if (child_score < best_score) // if MINER
                         {
                             best_indB2 = indB2;
                             best_shape = shape;
@@ -864,22 +878,18 @@ void bot_move(bool player)
                             best_score = child_score;
                         }
                     }
-                    else if (child_score < best_score) // if MINER
-                    {
-                        best_indB2 = indB2;
-                        best_shape = shape;
-                        best_ind_i = ind_i;
-                        best_ind_f = ind_f;
-                        best_score = child_score;
-                    }
                     move(player, shape, indB2, ind_f, ind_i, capture); // undo move
                 }
                 std::cout << std::endl;
             }
         }
     }
+    if (!has_move && is_attacked(player, board2[player][KING][0])) // checkmated
+        return 1;
+
     std::cout << "Chosen move: " << best_ind_i << " to " << best_ind_f << std::endl;
     move(player, best_shape, best_indB2, best_ind_i, best_ind_f);
+    return 0;
 }
 
 /**
