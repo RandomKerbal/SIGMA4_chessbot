@@ -1,8 +1,5 @@
-#include <cmath>
 #include <vector>
-#include <unordered_map>
 #include <climits>
-#include <algorithm>
 #include <random>
 
 // remove in VEXIQ
@@ -15,6 +12,7 @@ enum PLAYER {
     BLACK = 0, WHITE = 1,
     MAX_PLAYER = 2 // max number of players
 };
+
 /**
  * IMPORTANT: SHAPE 0 is undefined. It starts at 1 to sync with shapes on board.
  * Start with pieces that capture more commonly (pawns -> knights -> bishops -> rooks -> queens -> king)
@@ -99,9 +97,10 @@ unsigned long long int Zplayer = 0;
 
 /**
  * Transposition table.
- * key = hash; value = score
+ * index = hash % TTABLE_SZ; value = { hash, score }
  */
-std::unordered_map<unsigned long long int, int> Ttable;
+const int TTABLE_SZ = std::pow(2, 24);
+std::vector<std::pair<unsigned long long int, int>> Ttable(TTABLE_SZ, {0, 0});
 
 const int K_VECTOR[8] = {
     +1,             // (1, 0)
@@ -283,6 +282,7 @@ const int ENDGAME_BONUS[MAX_SHAPE][AREA] = {
         -53, -34, -21, -11, -28, -14, -24, -43, 0, 0
     }
 };
+
 /**
  * midgame/endgame_val (aka piece-square table)
  * └── 0,1: see enum PLAYER
@@ -294,7 +294,7 @@ int midgame_val[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 int endgame_val[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 
 const bool MAXER = WHITE, MINER = BLACK;
-const int MAX_DEPTH = 7;
+const int MAX_DEPTH = 6;
 
 /**
  * char_of
@@ -381,7 +381,8 @@ void init_all()
         MAX_WORTH_NOPAWN += WORTH[shape]*NUM[shape];
     }
 
-    // Ztable
+    // Zplayer, Ztable
+    Zplayer = rng();
     for (int ind = 0; ind < AREA; ind++)
     {
         for (int player = BLACK; player <= WHITE; player++)
@@ -390,9 +391,6 @@ void init_all()
                 Ztable[ind][player][shape] = rng();
         }
     }
-
-    // Zplayer
-    Zplayer = rng();
 
     // hash
     for (int player = BLACK; player <= WHITE; player++)
@@ -477,6 +475,7 @@ inline bool can_capture(bool player, int tile)
 std::vector<int> gen_moves(bool player, int shape, int ind_i)
 {
     std::vector<int> moves;
+    moves.reserve(27);
     int ind = 0, tile = 0;
     
     if (shape == KING)
@@ -658,7 +657,7 @@ void out_board(bool has_Ttable = false, bool has_hash = false, bool has_board2 =
         int i = 0;
         for (std::pair<unsigned long long int, int> hashscore : Ttable)
         {
-            if (i < 10)
+            if (i < 10 && hashscore.first)
             {
                 i++;
                 std::cout << "  " << hashscore.first << ": " << hashscore.second << '\n';
@@ -757,7 +756,7 @@ int approx(bool player)
 }
 
 /**
- * Minimax + Piece-Square Table Score + AlphaBeta Prunning + Zobrist Hashed Transposition Table
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Hashed Transposition Table
  * In first call, use depth = 1, alpha = INT_MIN, beta = INT_MAX.
  * @return
  *      n ∈ [-MAX_WORTH_NOPAWN, MAX_WORTH_NOPAWN] if over MAX_DEPTH || draw.
@@ -766,8 +765,9 @@ int approx(bool player)
  */
 int minimax(bool player, int depth, int alpha, int beta)
 {
-    if (Ttable.find(hash) != Ttable.end())
-        return Ttable[hash];
+    std::pair<unsigned long long int, int> &ind_Ttable = Ttable[hash % TTABLE_SZ];
+    if (ind_Ttable.first == hash)
+        return ind_Ttable.second;
 
     if (depth > MAX_DEPTH)
         return approx(player) * (player == MAXER ? 1 : -1);
@@ -809,7 +809,7 @@ int minimax(bool player, int depth, int alpha, int beta)
                     {
                         move(player, shape, indB2, ind_f, ind_i, capture); // undo move
                         score = (player == MAXER) ? alpha : beta;
-                        Ttable[hash] = score;
+                        ind_Ttable.second = score;
                         return score;
                     }
                     move(player, shape, indB2, ind_f, ind_i, capture); // undo move
@@ -822,7 +822,7 @@ int minimax(bool player, int depth, int alpha, int beta)
         score = (player == MAXER) ? INT_MIN : INT_MAX;
     else
         score = (player == MAXER) ? alpha : beta;
-    Ttable[hash] = score;
+    ind_Ttable.second = score;
     return score;
 }
 
