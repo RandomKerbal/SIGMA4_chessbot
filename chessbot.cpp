@@ -32,12 +32,14 @@ enum SHAPE {
 short NUM[MAX_SHAPE] = {0};
 
 /**
- * WORTH
+ * WORTH_DIV2/MIDGAME/ENDGAME_WORTH
  * └── 1...6: see enum SHAPE
- *     └── points worth of each shape
+ *     └── modified points worth of each shape
  */
-const short WORTH[MAX_SHAPE] = { 0, 1, 3, 3, 5, 9, 0 };
-short MAX_WORTH_NOPAWN = 0; // sum of number of pieces of each shape except pawns * points worth of each shape
+const short WORTH_DIV2[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4, 0 };
+const short MIDGAME_WORTH[MAX_SHAPE] = { 0, 82, 337, 365, 477, 1025, 0};
+const short ENDGAME_WORTH[MAX_SHAPE] = { 0, 94, 281, 297, 512,  936, 0};
+short MAX_WORTH_DIV2 = 0; // sum of number of pieces of each shape except pawns * WORTH_DIV2 of each shape
 const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
 
 /** 
@@ -361,7 +363,7 @@ inline bool is_play_area(short ind)
 }
 
 /**
- * Initialize NUM, MAX_WORTH, board2, Zplayer, Ztable, hash, midgame_val, and endgame_val.
+ * Initialize NUM, MAX_WORTH_DIV2, board2, Zplayer, Ztable, hash, midgame_val, and endgame_val.
  */
 void init_all()
 {
@@ -391,10 +393,12 @@ void init_all()
     for (int shape = PAWN; shape < MAX_SHAPE; shape++)
         NUM[shape] = std::max(num_temp[BLACK][shape], num_temp[WHITE][shape]);
 
-    // MAX_WORTH
-    for (short shape = KNIGHT; shape < KING; shape++)
-        MAX_WORTH_NOPAWN += WORTH[shape]*NUM[shape];
-            
+    // MAX_WORTH_DIV2
+    for (short player = BLACK; player <= WHITE; player++)
+    {
+        for (short shape = KNIGHT; shape < KING; shape++)
+            MAX_WORTH_DIV2 += WORTH_DIV2[shape]*NUM[shape];
+    }
 
     // Zplayer, Ztable
     Zplayer = rng();
@@ -430,10 +434,10 @@ void init_all()
             {
                 if (is_play_area(ind))
                 {
-                    short ind_bonus = (flip) ? (HEIGHT-1 - y_of(ind)) * WIDTH + x_of(ind) : ind;
+                    short ind_bonus = (flip) ? (HEIGHT-1 - y_of(ind))*WIDTH + x_of(ind) : ind;
 
-                    midgame_val[player][shape][ind] = WORTH[shape]*100 + MIDGAME_BONUS[shape][ind_bonus];
-                    endgame_val[player][shape][ind] = WORTH[shape]*100 + ENDGAME_BONUS[shape][ind_bonus];
+                    midgame_val[player][shape][ind] = MIDGAME_WORTH[shape] + MIDGAME_BONUS[shape][ind_bonus];
+                    endgame_val[player][shape][ind] = ENDGAME_WORTH[shape] + ENDGAME_BONUS[shape][ind_bonus];
                 }
 
             }
@@ -762,7 +766,7 @@ short approx(bool player)
                 {
                     midgame[player] += midgame_val[player][shape][ind];
                     endgame[player] += endgame_val[player][shape][ind];
-                    worths += WORTH[shape];
+                    worths += WORTH_DIV2[shape];
                 }
             }
         }
@@ -771,7 +775,7 @@ short approx(bool player)
     short midgame_score = midgame[player] - midgame[!player],
         endgame_score = endgame[player] - endgame[!player];
 
-    return endgame_score - (worths/MAX_WORTH_NOPAWN)*(endgame_score - midgame_score); // linear interpolation
+    return endgame_score - (worths/MAX_WORTH_DIV2)*(endgame_score - midgame_score); // linear interpolation
 }
 
 /**
@@ -779,7 +783,7 @@ short approx(bool player)
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n = 0 if draw.
- *      n ∈ [-MAX_WORTH_NOPAWN, 0) U (0, MAX_WORTH_NOPAWN] if over MAX_DEPTH.
+ *      n ∈ [-MAX_WORTH_DIV2, 0) U (0, MAX_WORTH_DIV2] if over MAX_DEPTH.
  *      n = SHRT_MAX if checked by MAXER.
  *      n = SHRT_MIN if checked by MINER.
  */
