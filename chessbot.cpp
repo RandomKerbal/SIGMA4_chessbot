@@ -38,6 +38,7 @@ struct BoardEntry {
     SHAPE shape = NONE;
     short sq = -1; // index on squares
 };
+
 /**
  * board
  * └── 0,1: see enum PLAYER
@@ -79,9 +80,9 @@ const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
  * 
  * The board is 10x8 since the two rightmost columns are sentinels that prevent
  * pointers from "wrapping" onto the previous/next row. The real playable area
- * is the leftmost 8x8. Sentinels/empties are nullptr to identify easily using !board[ind].
+ * is the leftmost 8x8. Sentinels/empties are nullptr to identify easily using !squares[sq].
  */
-BoardEntry* squares[AREA] = {nullptr};
+BoardEntry* squares[AREA] = { nullptr };
 
 /**
  * Ztable (Zobrist Table)
@@ -167,14 +168,14 @@ short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {
         { NONE },
         {   // pawn
-            82,  82,  82,  82,  82,  82,  82,  82, 0, 0, 
+             82,  82,  82,  82,  82,  82,  82,  82, 0, 0, 
             180, 216, 143, 177, 150, 208, 116,  71, 0, 0, 
-            76,  89, 108, 113, 147, 138, 107,  62, 0, 0, 
-            68,  95,  88, 103, 105,  94,  99,  59, 0, 0, 
-            55,  80,  77,  94,  99,  88,  92,  57, 0, 0, 
-            56,  78,  78,  72,  85,  85, 115,  70, 0, 0, 
-            47,  81,  62,  59,  67, 106, 120,  60, 0, 0, 
-            82,  82,  82,  82,  82,  82,  82,  82, 0, 0, 
+             76,  89, 108, 113, 147, 138, 107,  62, 0, 0, 
+             68,  95,  88, 103, 105,  94,  99,  59, 0, 0, 
+             55,  80,  77,  94,  99,  88,  92,  57, 0, 0, 
+             56,  78,  78,  72,  85,  85, 115,  70, 0, 0, 
+             47,  81,  62,  59,  67, 106, 120,  60, 0, 0, 
+             82,  82,  82,  82,  82,  82,  82,  82, 0, 0, 
         },
         {   // knight
             170, 248, 303, 288, 398, 240, 322, 230, 0, 0, 
@@ -207,23 +208,23 @@ short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
             458, 464, 478, 494, 493, 484, 440, 451, 0, 0,
         },
         {   // queen
-            997, 1025, 1054, 1037, 1084, 1069, 1068, 1070, 0, 0,
+             997, 1025, 1054, 1037, 1084, 1069, 1068, 1070, 0, 0,
             1001,  986, 1020, 1026, 1009, 1082, 1053, 1079, 0, 0, 
             1012, 1008, 1032, 1033, 1054, 1081, 1072, 1082, 0, 0,
-            998,  998, 1009, 1009, 1024, 1042, 1023, 1026, 0, 0,
+             998,  998, 1009, 1009, 1024, 1042, 1023, 1026, 0, 0,
             1016,  999, 1016, 1015, 1023, 1021, 1028, 1022, 0, 0,
             1011, 1027, 1014, 1023, 1020, 1027, 1039, 1030, 0, 0,
-            990, 1017, 1036, 1027, 1033, 1040, 1022, 1026, 0, 0,
+             990, 1017, 1036, 1027, 1033, 1040, 1022, 1026, 0, 0,
             1024, 1007, 1016, 1035, 1010, 1000,  994,  975, 0, 0, 
         },
         {   // king
             -65,  23,  16, -15, -56, -34,   2,  13, 0, 0,
-            29,  -1, -20,  -7,  -8,  -4, -38, -29, 0, 0,
-            -9,  24,   2, -16, -20,   6,  22, -22, 0, 0,
+             29,  -1, -20,  -7,  -8,  -4, -38, -29, 0, 0,
+             -9,  24,   2, -16, -20,   6,  22, -22, 0, 0,
             -17, -20, -12, -27, -30, -25, -14, -36, 0, 0,
             -49,  -1, -27, -39, -46, -44, -33, -51, 0, 0,
             -14, -14, -22, -46, -44, -30, -15, -27, 0, 0,
-            1,   7,  -8, -64, -43, -16,   9,   8, 0, 0,
+              1,   7,  -8, -64, -43, -16,   9,   8, 0, 0,
             -15,  36,  12, -54,   8, -28,  24,  14, 0, 0, 
         }
     }
@@ -233,14 +234,14 @@ short ENDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {
         { NONE },
         {   // pawn
-            94,  94,  94,  94,  94,  94,  94,  94, 0, 0, 
+             94,  94,  94,  94,  94,  94,  94,  94, 0, 0, 
             272, 267, 252, 228, 241, 226, 259, 281, 0, 0, 
             188, 194, 179, 161, 150, 147, 176, 178, 0, 0, 
             126, 118, 107,  99,  92,  98, 111, 111, 0, 0, 
             107, 103,  91,  87,  87,  86,  97,  93, 0, 0, 
-            98, 101,  88,  95,  94,  89,  93,  86, 0, 0, 
+             98, 101,  88,  95,  94,  89,  93,  86, 0, 0, 
             107, 102, 102, 104, 107,  94,  96,  87, 0, 0, 
-            94,  94,  94,  94,  94,  94,  94,  94, 0, 0, 
+             94,  94,  94,  94,  94,  94,  94,  94, 0, 0, 
         },
         {   // knight
             223, 243, 268, 253, 250, 254, 218, 182, 0, 0, 
@@ -340,11 +341,11 @@ inline bool is_play_area(short sq)
  */
 void init_all()
 {
-    // squares, NUM, MAX_WORTH_DIV2
     for (short player = BLACK; player <= WHITE; player++)
     {
         for (short shape = PAWN; shape < MAX_SHAPE; shape++)
         {
+            // squares, NUM, MAX_WORTH_DIV2
             for (BoardEntry &entry : board[player][shape])
             {
                 short sq = entry.sq;
@@ -355,15 +356,8 @@ void init_all()
                     MAX_WORTH_DIV2 += WORTH_DIV2[shape]*NUM[player][shape];
                 }
             }
-        }
-    }
 
-    // Zplayer, Ztable
-    Zplayer = rng();
-    for (short player = BLACK; player <= WHITE; player++)
-    {
-        for (short shape = PAWN; shape < MAX_SHAPE; shape++)
-        {
+            // Ztable
             for (short sq = 0; sq < AREA; sq++)
             {
                 if (is_play_area(sq))
@@ -371,6 +365,7 @@ void init_all()
             }
         }
     }
+    Zplayer = rng();
 
     // Zhash
     for (short sq = 0; sq < AREA; sq++)
@@ -432,7 +427,7 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
 }
 
 /**
- * IMPORTANT: Before calling, use board[ind] to check entry is NOT empty since return 0 can = black or empty!
+ * IMPORTANT: Before calling, use squares[sq] to check entry is NOT empty since return 0 can = black or empty!
  * @return whether the given entry has the enemy of the given player && not king.
  */
 inline bool can_capture(PLAYER player, BoardEntry entry)
