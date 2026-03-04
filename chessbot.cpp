@@ -8,68 +8,72 @@
 
 std::mt19937_64 rng(0);
 
-enum PLAYER: short {
-    BLACK = 0, WHITE = 1,
-    BOT = BLACK, HUMAN = WHITE,
-    MAX_PLAYER = 2 // max number of players
-};
 const short MAX_DEPTH = 5;
 
-/**
- * IMPORTANT: SHAPE 0 does not exist. It starts at 1 to sync with shapes on the board.
- * Start with shapes that capture more commonly (pawns -> knights -> bishops -> rooks -> queens -> king)
- * to mimic human behavior and enable more AlphaBeta Prunning.
- */
+enum PLAYER: short {
+    BLACK = 0, WHITE = 1,
+    MAX_PLAYER = 2,
+    BOT = BLACK, HUMAN = WHITE,
+};
 enum SHAPE: short {
-    NONE = 0, PAWN = 1, KNIGHT = 2, BISHOP = 3, ROOK = 4, QUEEN = 5, KING = 6,
-    MAX_SHAPE = 7 // max number of shapes +1
-};
-
-/**
- * NUM
- * └── 0,1: see enum PLAYER
- *     └── 1...6: see enum SHAPE
- *         └── number of pieces of each shape of each player.
- */
-short NUM[MAX_PLAYER][MAX_SHAPE] = {};
-
-struct BoardEntry {
-    PLAYER player = BLACK;
-    SHAPE shape = NONE;
-    short sq = -1; // index on squares
-};
-
-/**
- * board
- * └── 0,1: see enum PLAYER
- *     └── 1...6: see enum SHAPE
- *         └── 0...NUM[SHAPE]-1
- *             └── entry: { player, shape, sq }.
- *                 If an entry is captured, its sq = sq - AREA.
- *                 If an entry is empty, its sq = -1.
- */
-BoardEntry board[MAX_PLAYER][MAX_SHAPE][8] = {
-    {   // black
-        {},
-        { {BLACK, PAWN,  10}, {BLACK, PAWN,  11}, {BLACK, PAWN, 12}, {BLACK, PAWN, 13}, {BLACK, PAWN, 14}, {BLACK, PAWN, 15}, {BLACK, PAWN, 16}, {BLACK, PAWN, 17} }, // pawn
-        { {BLACK, KNIGHT, 1}, {BLACK, KNIGHT, 6} }, // knight
-        { {BLACK, BISHOP, 2}, {BLACK, BISHOP, 5} }, // bishop
-        { {BLACK, ROOK,   0}, {BLACK, ROOK,   7} }, // rook
-        { {BLACK, QUEEN,  3} }, // queen
-        { {BLACK, KING,   4} }  // king
-    },
-    {   // white
-        {},
-        { {WHITE, PAWN,   60}, {WHITE, PAWN,   61}, {WHITE, PAWN, 62}, {WHITE, PAWN, 63}, {WHITE, PAWN, 64}, {WHITE, PAWN, 65}, {WHITE, PAWN, 66}, {WHITE, PAWN, 67} },
-        { {WHITE, KNIGHT, 71}, {WHITE, KNIGHT, 76} },
-        { {WHITE, BISHOP, 72}, {WHITE, BISHOP, 75} },
-        { {WHITE, ROOK,   70}, {WHITE, ROOK,   77} },
-        { {WHITE, QUEEN,  73} },
-        { {WHITE, KING,   74} }
-    }
+    PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5, // start with shapes that capture more commonly to mimic human behavior and enable more AlphaBeta Prunning.
+    MAX_SHAPE = 6
 };
 
 const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
+
+struct BoardEntry {
+    PLAYER player = BLACK;
+    SHAPE shape = PAWN;
+    short sq = -1; // square
+};
+/**
+ * board
+ * └── 0,1: see enum PLAYER
+ *     └── 0...32 (arbitrary): max total number of pieces of each player
+ *         └── entry: { player, shape, sq }
+ *             If an entry is captured, its sq = sq - AREA.
+ *             If an entry is empty, its sq = -1.
+ */
+BoardEntry board[MAX_PLAYER][32] = {
+    {   // black
+        {BLACK, PAWN,  10}, {BLACK, PAWN,  11}, {BLACK, PAWN, 12}, {BLACK, PAWN, 13}, {BLACK, PAWN, 14}, {BLACK, PAWN, 15}, {BLACK, PAWN, 16}, {BLACK, PAWN, 17}, // pawn
+        {BLACK, KNIGHT, 1}, {BLACK, KNIGHT, 6}, // knight
+        {BLACK, BISHOP, 2}, {BLACK, BISHOP, 5}, // bishop
+        {BLACK, ROOK,   0}, {BLACK, ROOK,   7}, // rook
+        {BLACK, QUEEN,  3}, // queen
+        {BLACK, KING,   4}  // king
+    },
+    {   // white
+        {WHITE, PAWN,   60}, {WHITE, PAWN,   61}, {WHITE, PAWN, 62}, {WHITE, PAWN, 63}, {WHITE, PAWN, 64}, {WHITE, PAWN, 65}, {WHITE, PAWN, 66}, {WHITE, PAWN, 67},
+        {WHITE, KNIGHT, 71}, {WHITE, KNIGHT, 76},
+        {WHITE, BISHOP, 72}, {WHITE, BISHOP, 75},
+        {WHITE, ROOK,   70}, {WHITE, ROOK,   77},
+        {WHITE, QUEEN,  73},
+        {WHITE, KING,   74}
+    }
+};
+
+/**
+ * @related board
+ * BEGIN
+ * └── 0,1: see enum PLAYER
+ *     └── 0...5: see enum SHAPE
+ *         └── beginning index on the board for each shape of each player.
+ * 
+ * Since KING is the last shape, BEGIN[player][KING] = used size of board.
+ */
+short BEGIN[MAX_PLAYER][MAX_SHAPE] = {{0}};
+
+/**
+ * @related board
+ * SIZE_OF
+ * └── 0,1: see enum PLAYER
+ *     └── 0...5: see enum SHAPE
+ *         └── number of pieces of each shape of each player.
+ */
+short SIZE_OF[MAX_PLAYER][MAX_SHAPE] = {{0}};
+
 /** 
  * squares
  * ├── columns 8,9 element
@@ -82,12 +86,12 @@ const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
  * pointers from "wrapping" onto the previous/next row. The real playable area
  * is the leftmost 8x8. Sentinels/empties are nullptr to identify easily using !squares[sq].
  */
-BoardEntry* squares[AREA] = { nullptr };
+BoardEntry* squares[AREA] = {nullptr};
 
 /**
  * Ztable (Zobrist Table)
  * └── 0,1: see enum PLAYER
- *     └── 1...6: see enum SHAPE
+ *     └── 0...5: see enum SHAPE
  *         └── 0...80: index on main board
  *             └── random 64-bit integer
  * 
@@ -95,7 +99,7 @@ BoardEntry* squares[AREA] = { nullptr };
  */
 unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{}}};
 unsigned long long Zplayer = 0;
-unsigned long long Zhash;
+unsigned long long Zhash = 0;
 
 /**
  * Transposition table.
@@ -148,16 +152,16 @@ const short R_VECTOR[4] = {
 
 /**
  * WORTH_DIV2
- * └── 1...6: see enum SHAPE
+ * └── 0...5: see enum SHAPE
  *     └── worth of each shape floor-divide by 2
  */
-const short WORTH_DIV2[MAX_SHAPE] = { NONE, 0, 1, 1, 2, 4, 0 };
+const short WORTH_DIV2[MAX_SHAPE] = { 0, 1, 1, 2, 4, 0 };
 short MAX_WORTH_DIV2 = 0; // sum of number of pieces of each shape except pawns * WORTH_DIV2 of each shape
 
 /**
  * midgame/endgame_val (aka piece-square table)
  * └── 0,1: see enum PLAYER
- *     └── 1...6: see enum SHAPE
+ *     └── 0...5: see enum SHAPE
  *         └── 0...AREA-1: see main board
  *             └── worth of each shape based on midgame/endgame position with player at the bottom
  * 
@@ -166,7 +170,6 @@ short MAX_WORTH_DIV2 = 0; // sum of number of pieces of each shape except pawns 
 short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {}, // black initialize later
     {
-        { NONE },
         {   // pawn
              82,  82,  82,  82,  82,  82,  82,  82, 0, 0, 
             180, 216, 143, 177, 150, 208, 116,  71, 0, 0, 
@@ -232,7 +235,6 @@ short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
 short ENDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {}, // black initialize later
     {
-        { NONE },
         {   // pawn
              94,  94,  94,  94,  94,  94,  94,  94, 0, 0, 
             272, 267, 252, 228, 241, 226, 259, 281, 0, 0, 
@@ -298,18 +300,15 @@ short ENDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
 
 /**
  * char_of
- * ├── 0 (black)
- * │   └── 1...6: see enum SHAPE
- * │
- * └── 1 (white)
- *     └── 1...6: see enum SHAPE
+ * └── 0,1: see enum PLAYER
+ *     └── 0...5: see enum SHAPE
  * 
  * Converts entry from integer to character.
  * lowercase: black; uppercase: white 
  */
 const char char_of[MAX_PLAYER][MAX_SHAPE] = {
-    { NONE, 'p', 'n', 'b', 'r', 'q', 'k' },
-    { NONE, 'P', 'N', 'B', 'R', 'Q', 'K' },
+    { 'p', 'n', 'b', 'r', 'q', 'k' },
+    { 'P', 'N', 'B', 'R', 'Q', 'K' },
 };
 
 inline short x_of(short sq)
@@ -337,27 +336,31 @@ inline bool is_play_area(short sq)
 }
 
 /**
- * Initialize squares, NUM, MAX_WORTH_DIV2, Zplayer, Ztable, Zhash, black in MID/ENDGAME_WORTH.
+ * Initialize squares, BEGIN, SIZE_OF, MAX_WORTH_DIV2, Zplayer, Ztable, Zhash, black in MID/ENDGAME_WORTH.
  */
 void init_all()
 {
     for (short player = BLACK; player <= WHITE; player++)
     {
+        // squares, BEGIN, SIZE_OF, MAX_WORTH_DIV2
+        for (short ind = 0; ind < 32; ind++)
+        {
+            BoardEntry &entry = board[player][ind];
+            SHAPE shape = entry.shape;
+            short sq = entry.sq;
+            if (sq >= 0)
+            {
+                squares[sq] = &entry;
+                if (SIZE_OF[player][shape] == 0)
+                    BEGIN[player][shape] = ind;
+                SIZE_OF[player][shape] ++;
+                MAX_WORTH_DIV2 += WORTH_DIV2[shape]*SIZE_OF[player][shape];
+            }
+        }
+
+        // Ztable
         for (short shape = PAWN; shape < MAX_SHAPE; shape++)
         {
-            // squares, NUM, MAX_WORTH_DIV2
-            for (BoardEntry &entry : board[player][shape])
-            {
-                short sq = entry.sq;
-                if (sq >= 0)
-                {
-                    squares[sq] = &entry;
-                    NUM[player][shape] ++;
-                    MAX_WORTH_DIV2 += WORTH_DIV2[shape]*NUM[player][shape];
-                }
-            }
-
-            // Ztable
             for (short sq = 0; sq < AREA; sq++)
             {
                 if (is_play_area(sq))
@@ -554,9 +557,9 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy knights by iterating over all enemy knights.
-    for (short ind_foe = 0; ind_foe < NUM[!player][KNIGHT]; ind_foe++)
+    for (short num = 0; num < SIZE_OF[!player][KNIGHT]; num++)
     {
-        sq_foe = board[!player][KNIGHT][ind_foe].sq;
+        sq_foe = board[!player][KNIGHT+num].sq;
         if (sq_foe >= 0) // if not captured
         {
             dx = abs(x_of(sq_foe) - x_of(sq));
@@ -567,9 +570,9 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy bishops
-    for (short ind_foe = 0; ind_foe < NUM[!player][BISHOP]; ind_foe++)
+    for (short num = 0; num < SIZE_OF[!player][BISHOP]; num++)
     {
-        sq_foe = board[!player][BISHOP][ind_foe].sq;
+        sq_foe = board[!player][BISHOP+num].sq;
         if (sq_foe >= 0)
         {
             dx = abs(x_of(sq_foe) - x_of(sq));
@@ -580,9 +583,9 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy rooks
-    for (short ind_foe = 0; ind_foe < NUM[!player][ROOK]; ind_foe++)
+    for (short num = 0; num < SIZE_OF[!player][ROOK]; num++)
     {
-        sq_foe = board[!player][ROOK][ind_foe].sq;
+        sq_foe = board[!player][ROOK+num].sq;
         if (sq_foe >= 0)
         {
             dx = abs(x_of(sq_foe) - x_of(sq));
@@ -593,7 +596,7 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy queen
-    sq_foe = board[!player][QUEEN][0].sq;
+    sq_foe = board[!player][QUEEN].sq;
     if (sq_foe >= 0)
     {
         dx = abs(x_of(sq_foe) - x_of(sq));
@@ -603,7 +606,7 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy king
-    sq_foe = board[!player][KING][0].sq;
+    sq_foe = board[!player][BEGIN[!player][KING]].sq;
     dx = abs(x_of(sq_foe) - x_of(sq));
     dy = abs(y_of(sq_foe) - y_of(sq));
     if (std::max(dx, dy) == 1)
@@ -641,16 +644,17 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_board =
 
     if (has_board)
     {
+        BoardEntry board_entry;
         for (short player = BLACK; player <= WHITE; player++)
         {
-            for (short shape = PAWN; shape < MAX_SHAPE; shape++)
+            for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
             {
-                std::cout << std::setw(3) << '[' << char_of[player][shape] << "]=";
-                for (short ind = 0; ind < NUM[player][shape]; ind++)
-                    std::cout << board[player][shape][ind].sq << ",";
+                board_entry = board[player][ind];
+                std::cout << std::setw(3) << '[' << char_of[player][board_entry.shape] << "]=";
+                std::cout << board_entry.sq << ",";
             }
-            std::cout << std::endl;
         }
+        std::cout << std::endl;
     }
 
     if (has_attack)
@@ -695,20 +699,22 @@ short approx(PLAYER player)
 {
     short midgame_worths[MAX_PLAYER] = {0, 0}, endgame_worths[MAX_PLAYER] = {0, 0};
     float worths = 0; // sum of worth of remaining pieces
+    BoardEntry board_entry;
 
     for (short player = BLACK; player <= WHITE; player++)
     {
-        for (short shape = KNIGHT; shape < KING; shape++) // start from knight since WORTH_DIV2[PAWN] = 0
+        // for (short shape = KNIGHT; shape < KING; shape++) // start from knight since WORTH_DIV2[PAWN] = 0
+        // {
+        for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
         {
-            for (short ind = 0; ind < NUM[player][shape]; ind++)
+            board_entry = board[player][ind];
+            SHAPE shape = board_entry.shape;
+            short sq = board_entry.sq;
+            if (sq >= 0) // if not captured
             {
-                short sq = board[player][shape][ind].sq;
-                if (sq >= 0) // if not captured
-                {
-                    midgame_worths[player] += MIDGAME_WORTH[player][shape][sq];
-                    endgame_worths[player] += ENDGAME_WORTH[player][shape][sq];
-                    worths += WORTH_DIV2[shape];
-                }
+                midgame_worths[player] += MIDGAME_WORTH[player][shape][sq];
+                endgame_worths[player] += ENDGAME_WORTH[player][shape][sq];
+                worths += WORTH_DIV2[shape];
             }
         }
     }
@@ -730,49 +736,48 @@ short approx(PLAYER player)
  */
 short minimax(PLAYER player, short depth, short alpha, short beta)
 {
-    TtableEntry &entry = Ttable[Zhash % TTABLE_SZ];
-    if (entry.Zhash == Zhash)
-        return entry.score;
+    TtableEntry &Ttable_entry = Ttable[Zhash % TTABLE_SZ];
+    if (Ttable_entry.Zhash == Zhash)
+        return Ttable_entry.score;
 
     short score = 0, child_score = 0;
     bool has_move = false, is_maxer = player;
-    BoardEntry *capture;
+    BoardEntry board_entry, *capture;
 
     if (depth > MAX_DEPTH)
         return approx(player) * (is_maxer ? 1 : -1);
 
-    for (short shape = PAWN; shape < MAX_SHAPE; shape++)
+    for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
     {
-        for (short ind = 0; ind < NUM[player][shape]; ind++)
+        board_entry = board[player][ind];
+        short sq_i = board_entry.sq;
+        if (sq_i >= 0) // if not captured
         {
-            short sq_i = board[player][shape][ind].sq;
-            if (sq_i >= 0) // if not captured
+            SHAPE shape = board_entry.shape;
+            for (short sq_f : gen_moves(player, shape, sq_i))
             {
-                for (short sq_f : gen_moves(player, shape, sq_i))
+                capture = move(player, shape, sq_i, sq_f);
+
+                if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
-                    capture = move(player, SHAPE(shape), sq_i, sq_f);
+                    has_move = true;
+                    child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
 
-                    if (!is_attacked(player, board[player][KING][0].sq))
+                    if (is_maxer)
+                        alpha = std::max(alpha, child_score);
+                    else
+                        beta = std::min(beta, child_score);
+
+                    if (beta <= alpha)
                     {
-                        has_move = true;
-                        child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
-
-                        if (is_maxer)
-                            alpha = std::max(alpha, child_score);
-                        else
-                            beta = std::min(beta, child_score);
-
-                        if (beta <= alpha)
-                        {
-                            move(player, SHAPE(shape), sq_f, sq_i, capture); // undo
-                            score = (is_maxer) ? alpha : beta;
-                            if (depth > entry.depth)
-                                entry = {Zhash, score, depth};
-                            return score;
-                        }
+                        move(player, shape, sq_f, sq_i, capture); // undo
+                        score = (is_maxer) ? alpha : beta;
+                        if (depth > Ttable_entry.depth)
+                            Ttable_entry = {Zhash, score, depth};
+                        return score;
                     }
-                    move(player, SHAPE(shape), sq_f, sq_i, capture); // undo
                 }
+                move(player, shape, sq_f, sq_i, capture); // undo
             }
         }
     }
@@ -780,11 +785,11 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     if (has_move)
         score = (is_maxer) ? alpha : beta;
 
-    else if (is_attacked(player, board[player][KING][0].sq)) // checkmated
+    else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
         score = (is_maxer) ? SHRT_MIN : SHRT_MAX;
     
-    if (depth > entry.depth)
-        entry = {Zhash, score, depth};
+    if (depth > Ttable_entry.depth)
+        Ttable_entry = {Zhash, score, depth};
     return score;
 }
 
@@ -796,37 +801,29 @@ short bot_move(PLAYER player)
 {
     short child_score = 0, best_shape = 0, best_sq_i = 0, best_sq_f = 0, best_score = (player) ? SHRT_MIN : SHRT_MAX;
     bool has_move = false, is_maxer = player;
-    BoardEntry *capture;
+    BoardEntry board_entry, *capture;
 
-    for (short shape = PAWN; shape < MAX_SHAPE; shape++)
+    for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
     {
-        for (short ind = 0; ind < NUM[player][shape]; ind++)
+        board_entry = board[player][ind];
+        short sq_i = board_entry.sq;
+        if (sq_i >= 0) // if not captured
         {
-            short sq_i = board[player][shape][ind].sq;
-            if (sq_i >= 0) // if not captured
+            SHAPE shape = board_entry.shape;
+            std::cout << "Possible {move, score} from " << sq_i << ": ";
+            for (short sq_f : gen_moves(player, shape, sq_i))
             {
-                std::cout << "Possible {move, score} from " << sq_i << ": ";
-                for (short sq_f : gen_moves(player, shape, sq_i))
+                capture = move(player, shape, sq_i, sq_f);
+                
+                if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
-                    capture = move(player, SHAPE(shape), sq_i, sq_f);
-                    
-                    if (!is_attacked(player, board[player][KING][0].sq))
+                    has_move = true;
+                    child_score = minimax(PLAYER(!player), PAWN, SHRT_MIN, SHRT_MAX);
+                
+                    std::cout << "{" << sq_f << ", " << child_score << "}, ";
+                    if (is_maxer)
                     {
-                        has_move = true;
-                        child_score = minimax(PLAYER(!player), PAWN, SHRT_MIN, SHRT_MAX);
-                    
-                        std::cout << "{" << sq_f << ", " << child_score << "}, ";
-                        if (is_maxer)
-                        {
-                            if (child_score > best_score)
-                            {
-                                best_shape = shape;
-                                best_sq_i = sq_i;
-                                best_sq_f = sq_f;
-                                best_score = child_score;
-                            }
-                        }
-                        else if (child_score < best_score) // if MINER
+                        if (child_score > best_score)
                         {
                             best_shape = shape;
                             best_sq_i = sq_i;
@@ -834,10 +831,17 @@ short bot_move(PLAYER player)
                             best_score = child_score;
                         }
                     }
-                    move(player, SHAPE(shape), sq_f, sq_i, capture); // undo
+                    else if (child_score < best_score) // if MINER
+                    {
+                        best_shape = shape;
+                        best_sq_i = sq_i;
+                        best_sq_f = sq_f;
+                        best_score = child_score;
+                    }
                 }
-                std::cout << std::endl;
+                move(player, shape, sq_f, sq_i, capture); // undo
             }
+            std::cout << std::endl;
         }
     }
     if (has_move)
@@ -846,7 +850,7 @@ short bot_move(PLAYER player)
         move(player, SHAPE(best_shape), best_sq_i, best_sq_f);
         return 0;
     }
-    else if (!has_move && is_attacked(player, board[player][KING][0].sq)) // checkmated
+    else if (!has_move && is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
         return 1;
     
     else
@@ -913,7 +917,7 @@ short validate(short sq_i, short sq_f)
         return 6;
 
     BoardEntry *capture = move(player, shape, sq_i, sq_f);
-    if (is_attacked(player, board[player][KING][0].sq))
+    if (is_attacked(player, board[player][BEGIN[player][KING]].sq))
     {
         move(player, shape, sq_f, sq_i, capture); // undo
         return 7;
