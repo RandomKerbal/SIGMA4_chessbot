@@ -8,99 +8,107 @@
 
 std::mt19937_64 rng(0);
 
-enum PLAYER {
-    BLACK = 0, MINER = BLACK, WHITE = 1, MAXER = WHITE,
+enum PLAYER: short {
+    BLACK = 0, WHITE = 1,
+    BOT = BLACK, HUMAN = WHITE,
     MAX_PLAYER = 2 // max number of players
 };
 const short MAX_DEPTH = 5;
 
 /**
- * IMPORTANT: SHAPE 0 is undefined. It starts at 1 to sync with shapes on board.
- * Start with pieces that capture more commonly (pawns -> knights -> bishops -> rooks -> queens -> king)
+ * IMPORTANT: SHAPE 0 does not exist. It starts at 1 to sync with shapes on the board.
+ * Start with shapes that capture more commonly (pawns -> knights -> bishops -> rooks -> queens -> king)
  * to mimic human behavior and enable more AlphaBeta Prunning.
  */
-enum SHAPE {
-    PAWN = 1, KNIGHT = 2, BISHOP = 3, ROOK = 4, QUEEN = 5, KING = 6,
+enum SHAPE: short {
+    NONE = 0, PAWN = 1, KNIGHT = 2, BISHOP = 3, ROOK = 4, QUEEN = 5, KING = 6,
     MAX_SHAPE = 7 // max number of shapes +1
 };
 
 /**
  * NUM
- * └── 1...6: see enum SHAPE
- *     └── number of pieces of each shape in main board. If starting number of black pieces != white pieces, the higher number.
+ * └── 0,1: see enum PLAYER
+ *     └── 1...6: see enum SHAPE
+ *         └── number of pieces of each shape of each player.
  */
-short NUM[MAX_SHAPE] = {0};
-const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
+short NUM[MAX_PLAYER][MAX_SHAPE] = {};
 
-/** 
- * board
- * ├── columns 8,9 element
- * │   └── 0: sentinel
- * │
- * └── columns 0...8 element (tile)
- *     └── 0: empty
- *     ├── digit1: see enum PLAYER
- *     ├── digit2: see enum SHAPE
- *     └── digit3 (indB2): index on board2
- * 
- * The board is 10x8 since the two rightmost columns are sentinels that prevent
- * pointers from "wrapping" onto the previous/next row. The real playable area
- * is the leftmost 8x8. Sentinel/empty are 0 to identify easily using !board[ind]
- */
-short board[AREA] = {
-     40,  20,  30,  50,  60,  31,  21,  41, 0, 0,
-     10,  11,  12,  13,  14,  15,  16,  17, 0, 0,
-      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
-      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
-      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
-      0,   0,   0,   0,   0,   0,   0,   0, 0, 0,
-    110, 111, 112, 113, 114, 115, 116, 117, 0, 0,
-    140, 120, 130, 150, 160, 131, 121, 141, 0, 0,
+struct BoardEntry {
+    PLAYER player = BLACK;
+    SHAPE shape = NONE;
+    short square = -1; // index on squares
 };
-
 /**
- * board2 (aka B2)
+ * board
  * └── 0,1: see enum PLAYER
  *     └── 1...6: see enum SHAPE
  *         └── 0...NUM[SHAPE]-1
- *             └── indexes on main board. If a tile is captured, its index becomes: index - AREA.
- * 
- * board2 advantages:
- * 1. Do not need to iterate over empty/enemy tiles in minimax().
- * 2. Quick access of enemy tiles index in is_attacked().
+ *             └── entry: { player, shape, sq }.
+ *                 If an entry is captured, its sq = sq - AREA.
+ *                 If an entry is empty, its sq = -1.
  */
-short board2[MAX_PLAYER][MAX_SHAPE][8] = {{{-1}}};
+BoardEntry board[MAX_PLAYER][MAX_SHAPE][8] = {
+    {   // black
+        {},
+        { {BLACK, PAWN,  10}, {BLACK, PAWN,  11}, {BLACK, PAWN, 12}, {BLACK, PAWN, 13}, {BLACK, PAWN, 14}, {BLACK, PAWN, 15}, {BLACK, PAWN, 16}, {BLACK, PAWN, 17} }, // pawn
+        { {BLACK, KNIGHT, 1}, {BLACK, KNIGHT, 6} }, // knight
+        { {BLACK, BISHOP, 2}, {BLACK, BISHOP, 5} }, // bishop
+        { {BLACK, ROOK,   0}, {BLACK, ROOK,   7} }, // rook
+        { {BLACK, QUEEN,  3} }, // queen
+        { {BLACK, KING,   4} }  // king
+    },
+    {   // white
+        {},
+        { {WHITE, PAWN,   60}, {WHITE, PAWN,   61}, {WHITE, PAWN, 62}, {WHITE, PAWN, 63}, {WHITE, PAWN, 64}, {WHITE, PAWN, 65}, {WHITE, PAWN, 66}, {WHITE, PAWN, 67} },
+        { {WHITE, KNIGHT, 71}, {WHITE, KNIGHT, 76} },
+        { {WHITE, BISHOP, 72}, {WHITE, BISHOP, 75} },
+        { {WHITE, ROOK,   70}, {WHITE, ROOK,   77} },
+        { {WHITE, QUEEN,  73} },
+        { {WHITE, KING,   74} }
+    }
+};
 
-/**
- * hash of board
+const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
+/** 
+ * squares
+ * ├── columns 8,9 element
+ * │   └── nullptr as sentinel
+ * │
+ * └── columns 0...8 element
+ *     └── pointer to an entry in the main board, else nullptr as empty square.
+ * 
+ * The board is 10x8 since the two rightmost columns are sentinels that prevent
+ * pointers from "wrapping" onto the previous/next row. The real playable area
+ * is the leftmost 8x8. Sentinels/empties are nullptr to identify easily using !board[ind].
  */
-unsigned long long hash;
+BoardEntry* squares[AREA] = {nullptr};
 
 /**
  * Ztable (Zobrist Table)
- * └── 0...80: index on main board
- *     └── 0,1: see enum PLAYER
- *         └── 1...6: see enum SHAPE
+ * └── 0,1: see enum PLAYER
+ *     └── 1...6: see enum SHAPE
+ *         └── 0...80: index on main board
  *             └── random 64-bit integer
  * 
  * Zplayer: random 64-bit integer
  */
-unsigned long long Ztable[AREA][MAX_PLAYER][MAX_SHAPE] = {{{0}}};
+unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{}}};
 unsigned long long Zplayer = 0;
+unsigned long long Zhash;
 
 /**
  * Transposition table.
- * index = hash % TTABLE_SZ; value = { hash, score }
+ * index = Zhash % TTABLE_SZ; value = { Zhash, score }
  * 
- * 2 or more hash may have the same index.
+ * 2 or more Zhash may have the same index.
  */
 const unsigned int TTABLE_SZ = std::pow(2, 22);
-struct Ttable_entry {
-    unsigned long long hash = 0;
+struct TtableEntry {
+    unsigned long long Zhash = 0;
     short score = 0;
     short depth = 0;
 };
-std::vector<Ttable_entry> Ttable(TTABLE_SZ, {0, 0, 0});
+std::vector<TtableEntry> Ttable(TTABLE_SZ, {0, 0, 0});
 
 const short K_VECTOR[8] = {
     +1,             // (1, 0)
@@ -142,7 +150,7 @@ const short R_VECTOR[4] = {
  * └── 1...6: see enum SHAPE
  *     └── worth of each shape floor-divide by 2
  */
-const short WORTH_DIV2[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4, 0 };
+const short WORTH_DIV2[MAX_SHAPE] = { NONE, 0, 1, 1, 2, 4, 0 };
 short MAX_WORTH_DIV2 = 0; // sum of number of pieces of each shape except pawns * WORTH_DIV2 of each shape
 
 /**
@@ -155,9 +163,9 @@ short MAX_WORTH_DIV2 = 0; // sum of number of pieces of each shape except pawns 
  * values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
 short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
-    {0}, // black initialize later
+    {}, // black initialize later
     {
-        {0},
+        { NONE },
         {   // pawn
             82,  82,  82,  82,  82,  82,  82,  82, 0, 0, 
             180, 216, 143, 177, 150, 208, 116,  71, 0, 0, 
@@ -221,9 +229,9 @@ short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
     }
 };
 short ENDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
-    {0}, // black initialize later
+    {}, // black initialize later
     {
-        {0},
+        { NONE },
         {   // pawn
             94,  94,  94,  94,  94,  94,  94,  94, 0, 0, 
             272, 267, 252, 228, 241, 226, 259, 281, 0, 0, 
@@ -295,202 +303,170 @@ short ENDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
  * └── 1 (white)
  *     └── 1...6: see enum SHAPE
  * 
- * Converts tile from integer to character.
+ * Converts entry from integer to character.
  * lowercase: black; uppercase: white 
  */
 const char char_of[MAX_PLAYER][MAX_SHAPE] = {
-    { '_', 'p', 'n', 'b', 'r', 'q', 'k' },
-    { '_', 'P', 'N', 'B', 'R', 'Q', 'K' },
+    { NONE, 'p', 'n', 'b', 'r', 'q', 'k' },
+    { NONE, 'P', 'N', 'B', 'R', 'Q', 'K' },
 };
 
-/**
- * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since return 0 can = black or empty!
- * @return the player occupying the given tile (see enum PLAYER).
- */
-inline bool player_of(short tile)
+inline short x_of(short sq)
 {
-    return tile / 100; // extract digit1
+    return sq % WIDTH;
 }
 
-inline short shape_of(short tile)
+inline short y_of(short sq)
 {
-    return (tile / 10) % 10; // extract digit2
-}
-
-inline short indB2_of(short tile)
-{
-    return tile % 10; // extract digit3
-}
-
-inline short x_of(short ind)
-{
-    return ind % WIDTH;
-}
-
-inline short y_of(short ind)
-{
-    return ind / WIDTH;
+    return sq / WIDTH;
 }
 
 /**
  * @return the forward direction relative to the given player.
  * With WHITE at the bottom and black at the top, white's foward = -WIDTH, black's foward = +WIDTH.
  */
-inline short rel_foward(bool player)
+inline short rel_foward(PLAYER player)
 {
     return (player ? -1 : 1)*WIDTH;
 }
 
-inline bool is_play_area(short ind)
+inline bool is_play_area(short sq)
 {
-    return x_of(ind) < 8 && unsigned(ind) < AREA; // if x < 0, it becomes a huge unsigned number > AREA.
+    return x_of(sq) < 8 && unsigned(sq) < AREA; // if x < 0, it becomes a huge unsigned number > AREA.
 }
 
 /**
- * Initialize NUM, MAX_WORTH_DIV2, board2, Zplayer, Ztable, hash, black in MIDGAME/ENDGAME_WORTH.
+ * Initialize squares, NUM, MAX_WORTH_DIV2, Zplayer, Ztable, Zhash, black in MID/ENDGAME_WORTH.
  */
 void init_all()
 {
-    // fill board2 with -1
+    // squares, NUM, MAX_WORTH_DIV2
     for (short player = BLACK; player <= WHITE; player++)
     {
         for (short shape = PAWN; shape < MAX_SHAPE; shape++)
         {
-            for (short &ind : board2[player][shape])
-                ind = -1;
-        }
-    }
-
-    // board2, NUM
-    short num_temp[MAX_PLAYER][MAX_SHAPE] = {{0}};
-    for (short ind = 0; ind < AREA; ind++)
-    {
-        short tile = board[ind];
-        if (tile)
-        {
-            bool player = player_of(tile);
-            short shape = shape_of(tile);
-            board2[player][shape][indB2_of(tile)] = ind;
-            num_temp[player][shape] ++;
-        }
-    }
-    for (int shape = PAWN; shape < MAX_SHAPE; shape++)
-        NUM[shape] = std::max(num_temp[BLACK][shape], num_temp[WHITE][shape]);
-
-    // MAX_WORTH_DIV2
-    for (short player = BLACK; player <= WHITE; player++)
-    {
-        for (short shape = KNIGHT; shape < KING; shape++)
-            MAX_WORTH_DIV2 += WORTH_DIV2[shape]*NUM[shape];
-    }
-
-    // Zplayer, Ztable
-    Zplayer = rng();
-    for (short ind = 0; ind < AREA; ind++)
-    {
-        for (short player = BLACK; player <= WHITE; player++)
-        {
-            for (short shape = PAWN; shape < MAX_SHAPE; shape++)
-                Ztable[ind][player][shape] = rng();
-        }
-    }
-
-    // hash
-    for (short player = BLACK; player <= WHITE; player++)
-    {
-        for (short shape = PAWN; shape < MAX_SHAPE; shape++)
-        {
-            for (short indB2 = 0; indB2 < NUM[shape]; indB2++)
+            for (BoardEntry &entry : board[player][shape])
             {
-                short ind = board2[player][shape][indB2];
-                hash ^= Ztable[ind][player][shape];
+                short sq = entry.square;
+                if (sq >= 0)
+                {
+                    squares[sq] = &entry;
+                    NUM[player][shape] ++;
+                    MAX_WORTH_DIV2 += WORTH_DIV2[shape]*NUM[player][shape];
+                }
             }
         }
     }
 
-    // black in MIDGAME/ENDGAME_WORTH = white mirrored along x-axis
+    // Zplayer, Ztable
+    Zplayer = rng();
+    for (short player = BLACK; player <= WHITE; player++)
+    {
+        for (short shape = PAWN; shape < MAX_SHAPE; shape++)
+        {
+            for (short sq = 0; sq < AREA; sq++)
+            {
+                if (is_play_area(sq))
+                {
+                    Ztable[player][shape][sq] = rng();
+                }
+            }
+        }
+    }
+
+    // Zhash
+    for (short sq = 0; sq < AREA; sq++)
+    {
+        if (squares[sq])
+        {
+            BoardEntry entry = *squares[sq];
+            Zhash ^= Ztable[entry.player][entry.shape][sq];
+        }
+    }
+
+    // black's MID/ENDGAME_WORTH = white's mirrored along x-axis
     for (short shape = PAWN; shape < MAX_SHAPE; shape++)
     {
-        for (short ind = 0; ind < AREA; ind++)
+        for (short sq = 0; sq < AREA; sq++)
         {
-            short mirror = (HEIGHT-1 - y_of(ind))*WIDTH + x_of(ind);
-            MIDGAME_WORTH[BLACK][shape][ind] = MIDGAME_WORTH[WHITE][shape][mirror];
-            ENDGAME_WORTH[BLACK][shape][ind] = ENDGAME_WORTH[WHITE][shape][mirror];
+            short mirror = (HEIGHT-1 - y_of(sq))*WIDTH + x_of(sq);
+            MIDGAME_WORTH[BLACK][shape][sq] = MIDGAME_WORTH[WHITE][shape][mirror];
+            ENDGAME_WORTH[BLACK][shape][sq] = ENDGAME_WORTH[WHITE][shape][mirror];
 
         }
     }
 }
 
 /**
- * @return captured tile.
+ * @return captured entry.
  * When undoing moves,
  * 1. returned value is directly fed into parameter: restore.
- * 2. ind_i and ind_f switch places.
+ * 2. sq_i and sq_f switch places.
  */
-inline short move(bool player, short shape, short indB2, short ind_i, short ind_f, short restore = 0)
+inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, BoardEntry *restore = nullptr)
 {
-    short capture = board[ind_f];
+    BoardEntry *capture = squares[sq_f];
     if (capture)
     {
-        short shape_capture = shape_of(capture);
-        board2[!player][shape_capture][indB2_of(capture)] -= AREA; // move ind_f outside board
-        hash ^= Ztable[ind_f][!player][shape_capture];
+        (*capture).square -= AREA; // move ind_f outside board
+        Zhash ^= Ztable[!player][(*capture).shape][sq_f];
     }
 
-    else if (restore) // if tile to restore exists
+    else if (restore) // if entry to restore exists
     {
-        short shape_restore = shape_of(restore);
-        board2[!player][shape_restore][indB2_of(restore)] += AREA; // move ind_f outside board back inside
-        hash ^= Ztable[ind_i][!player][shape_restore];
+        (*restore).square += AREA; // move ind_f outside board back inside
+        Zhash ^= Ztable[!player][(*restore).shape][sq_i];
     }
 
-    board2[player][shape][indB2] = ind_f;
+    (*squares[sq_i]).square = sq_f;
 
-    // add to final tile
-    board[ind_f] = board[ind_i];
-    hash ^= Ztable[ind_f][player][shape];
+    // add to final square
+    squares[sq_f] = squares[sq_i];
+    Zhash ^= Ztable[player][shape][sq_f];
     
-    // remove from initial tile
-    board[ind_i] = restore;
-    hash ^= Ztable[ind_i][player][shape];
+    // remove from initial square
+    squares[sq_i] = restore;
+    Zhash ^= Ztable[player][shape][sq_i];
 
-    hash ^= Zplayer;  // switch player of hash
+    // switch player of Zhash
+    Zhash ^= Zplayer;
     return capture;
 }
 
 /**
- * IMPORTANT: Before calling, use board[ind] to check tile is NOT empty since return 0 can = black or empty!
- * @return whether the given tile has the enemy of the given player && not king.
+ * IMPORTANT: Before calling, use board[ind] to check entry is NOT empty since return 0 can = black or empty!
+ * @return whether the given entry has the enemy of the given player && not king.
  */
-inline bool can_capture(bool player, short tile)
+inline bool can_capture(PLAYER player, BoardEntry entry)
 {
-    return player_of(tile) != player && shape_of(tile) != KING;
+    return entry.player != player && entry.shape != KING;
 }
 
-std::vector<short> gen_moves(bool player, short shape, short ind_i)
+std::vector<short> gen_moves(PLAYER player, short shape, short sq_i)
 {
     std::vector<short> moves;
     moves.reserve(27);
-    short ind = 0, tile = 0;
+    short sq = 0;
+    BoardEntry *ptr;
     
     if (shape == KING)
     {
         for (short v: K_VECTOR)
         {
-            ind = ind_i + v;
-            tile = board[ind];
-            if (is_play_area(ind) && (!tile || can_capture(player, tile)))
-                moves.emplace_back(ind);
+            sq = sq_i + v;
+            ptr = squares[sq];
+            if (is_play_area(sq) && (!ptr || can_capture(player, *ptr)))
+                moves.emplace_back(sq);
         }
     }
     if (shape == KNIGHT)
     {
         for (short v: N_VECTOR)
         {
-            ind = ind_i + v;
-            tile = board[ind];
-            if (is_play_area(ind) && (!tile || can_capture(player, tile)))
-                moves.emplace_back(ind);
+            sq = sq_i + v;
+            ptr = squares[sq];
+            if (is_play_area(sq) && (!ptr || can_capture(player, *ptr)))
+                moves.emplace_back(sq);
         }
     }
     if (shape == ROOK || shape == QUEEN)
@@ -498,11 +474,11 @@ std::vector<short> gen_moves(bool player, short shape, short ind_i)
         for (short v: R_VECTOR)
         {
             // travel until on top of a shape
-            for (ind = ind_i + v; is_play_area(ind) && !board[ind]; ind += v)
-                moves.emplace_back(ind);
-            
-            if (is_play_area(ind) && can_capture(player, board[ind]))
-                moves.emplace_back(ind);
+            for (sq = sq_i + v; is_play_area(sq) && !squares[sq]; sq += v)
+                moves.emplace_back(sq);
+
+            if (is_play_area(sq) && can_capture(player, *squares[sq]))
+                moves.emplace_back(sq);
 
         }
     }
@@ -510,39 +486,39 @@ std::vector<short> gen_moves(bool player, short shape, short ind_i)
     {
         for (short v: B_VECTOR)
         {
-            for (ind = ind_i + v; is_play_area(ind) && !board[ind]; ind += v)
-                moves.emplace_back(ind);
+            for (sq = sq_i + v; is_play_area(sq) && !squares[sq]; sq += v)
+                moves.emplace_back(sq);
             
-            if (is_play_area(ind) && can_capture(player, board[ind]))
-                moves.emplace_back(ind);
+            if (is_play_area(sq) && can_capture(player, *squares[sq]))
+                moves.emplace_back(sq);
         }
     }
     if (shape == PAWN)
     {
-        short y_i = y_of(ind_i), dy = rel_foward(player);
+        short y_i = y_of(sq_i), dy = rel_foward(player);
         if (1 <= y_i && y_i <= 6)
         {
-            ind = ind_i + dy;
+            sq = sq_i + dy;
 
             // capture moves
             for (short dx = -1; dx <= 1; dx += 2)
             {
-                short ind_f = ind + dx;
-                tile = board[ind_f];
-                if (tile && can_capture(player, tile))
-                    moves.emplace_back(ind_f);
+                short sq_f = sq + dx;
+                ptr = squares[sq_f];
+                if (ptr && can_capture(player, *ptr))
+                    moves.emplace_back(sq_f);
             }
 
             // y-moves
-            if (!board[ind])
+            if (!squares[sq])
             {
-                moves.emplace_back(ind);
+                moves.emplace_back(sq);
             
                 if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if pawn can step 2
                 {
-                    ind += dy;
-                    if (!board[ind])
-                        moves.emplace_back(ind);
+                    sq += dy;
+                    if (!squares[sq])
+                        moves.emplace_back(sq);
                 }
             }
         }
@@ -552,113 +528,110 @@ std::vector<short> gen_moves(bool player, short shape, short ind_i)
 }
 
 /**
- * @return whether all tiles on the path are empty.
+ * @return whether all entries on the path are empty.
  * IMPORTANT: dx, dy are absolute.
  */
-inline bool is_path_clear(short ind_i, short ind_f, short dx, short dy)
+inline bool is_path_clear(short sq_i, short sq_f, short dx, short dy)
 {
-    short v = (ind_f - ind_i) / std::max(dx, dy); 
-    for (short ind = ind_i + v; ind != ind_f; ind += v)
+    short v = (sq_f - sq_i) / std::max(dx, dy);
+    for (short sq = sq_i + v; sq != sq_f; sq += v)
     {
-        if (board[ind])
+        if (squares[sq])
             return false;
     }
     return true;
 }
 
 /**
- * @return whether the given tile is currently attacked by the enemy of the given player.
+ * @return whether the given square is currently attacked by the enemy of the given player.
  */
-bool is_attacked(bool player, short ind)
+bool is_attacked(PLAYER player, short sq)
 {
-    short ind_e = 0, // enemy index on main board
-        dx = 0, dy = 0;
+    short dx = 0, dy = 0, sq_foe = 0; // foe square on squares
 
-    // Start with pieces more likely to be attacked by (pawns -> knights -> bishops -> rooks -> queens -> king).
+    // Start with shapes more likely to be attacked by (pawns -> knights -> bishops -> rooks -> queens -> king).
 
-    // check for enemy pawns
-    // Pretend I'm a pawn and check where I can capture.
-    ind_e = ind + rel_foward(player);
-    for (short dx = -1; dx <= 1; dx += 2)
+    // check for enemy pawns by being a pawn and check where I can capture.
+    sq_foe = sq + rel_foward(player);
+    for (dx = -1; dx <= 1; dx += 2)
     { 
-        short tile = board[ind_e + dx];
-        if (player_of(tile) == !player && shape_of(tile) == PAWN)
+        BoardEntry *ptr = squares[sq_foe + dx];
+        if (ptr && (*ptr).player != player && (*ptr).shape == PAWN)
             return 1;
     }
 
-    // check for enemy knights
-    // Iterate over all enemy knights.
-    for (short indB2_e = 0; indB2_e < NUM[KNIGHT]; indB2_e++)
+    // check for enemy knights by iterating over all enemy knights.
+    for (short ind_foe = 0; ind_foe < NUM[!player][KNIGHT]; ind_foe++)
     {
-        ind_e = board2[!player][KNIGHT][indB2_e];
-        if (ind_e >= 0) // if not captured
+        sq_foe = board[!player][KNIGHT][ind_foe].square;
+        if (sq_foe >= 0) // if not captured
         {
-            dx = abs(x_of(ind_e) - x_of(ind));
-            dy = abs(y_of(ind_e) - y_of(ind));
-            if ((dx == 1 && dy == 2) && (dx == 2 && dy == 1))
+            dx = abs(x_of(sq_foe) - x_of(sq));
+            dy = abs(y_of(sq_foe) - y_of(sq));
+            if (dx == 1 && dy == 2 && dx == 2 && dy == 1)
                 return 1;
         }
     }
 
     // check for enemy bishops
-    for (short indB2_e = 0; indB2_e < NUM[BISHOP]; indB2_e++)
+    for (short ind_foe = 0; ind_foe < NUM[!player][BISHOP]; ind_foe++)
     {
-        ind_e = board2[!player][BISHOP][indB2_e];
-        if (ind_e >= 0)
+        sq_foe = board[!player][BISHOP][ind_foe].square;
+        if (sq_foe >= 0)
         {
-            dx = abs(x_of(ind_e) - x_of(ind));
-            dy = abs(y_of(ind_e) - y_of(ind));
-            if (dx == dy && is_path_clear(ind, ind_e, dx, dy))
+            dx = abs(x_of(sq_foe) - x_of(sq));
+            dy = abs(y_of(sq_foe) - y_of(sq));
+            if (dx == dy && is_path_clear(sq, sq_foe, dx, dy))
                 return 1;
         }
     }
 
     // check for enemy rooks
-    for (short indB2_e = 0; indB2_e < NUM[ROOK]; indB2_e++)
+    for (short ind_foe = 0; ind_foe < NUM[!player][ROOK]; ind_foe++)
     {
-        ind_e = board2[!player][ROOK][indB2_e];
-        if (ind_e >= 0)
+        sq_foe = board[!player][ROOK][ind_foe].square;
+        if (sq_foe >= 0)
         {
-            dx = abs(x_of(ind_e) - x_of(ind));
-            dy = abs(y_of(ind_e) - y_of(ind));
-            if ((dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
+            dx = abs(x_of(sq_foe) - x_of(sq));
+            dy = abs(y_of(sq_foe) - y_of(sq));
+            if ((dx == 0 || dy == 0) && is_path_clear(sq, sq_foe, dx, dy))
                 return 1;
         }
     }
 
     // check for enemy queen
-    ind_e = board2[!player][QUEEN][0];
-    if (ind_e >= 0)
+    sq_foe = board[!player][QUEEN][0].square;
+    if (sq_foe >= 0)
     {
-        dx = abs(x_of(ind_e) - x_of(ind));
-        dy = abs(y_of(ind_e) - y_of(ind));
-        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(ind, ind_e, dx, dy))
+        dx = abs(x_of(sq_foe) - x_of(sq));
+        dy = abs(y_of(sq_foe) - y_of(sq));
+        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq, sq_foe, dx, dy))
             return 1;
     }
 
     // check for enemy king
-    ind_e = board2[!player][KING][0];
-    dx = abs(x_of(ind_e) - x_of(ind));
-    dy = abs(y_of(ind_e) - y_of(ind));
+    sq_foe = board[!player][KING][0].square;
+    dx = abs(x_of(sq_foe) - x_of(sq));
+    dy = abs(y_of(sq_foe) - y_of(sq));
     if (std::max(dx, dy) == 1)
         return 1;
 
     return 0;
 }
 
-void out_board(bool has_Ttable = false, bool has_hash = false, bool has_board2 = false, bool has_attack = false)
+void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_board = false, bool has_attack = false)
 {
     if (has_Ttable)
     {
         std::cout << "Ttable:" << std::endl;
         short i = 0;
-        for (Ttable_entry entry : Ttable)
+        for (TtableEntry entry : Ttable)
         {
             if (i < 10)
             {
-                if (entry.hash)
+                if (entry.Zhash)
                 {
-                    std::cout << "  " << entry.hash << ", " << entry.score << ", " << entry.depth << '\n';
+                    std::cout << "  " << entry.Zhash << ", " << entry.score << ", " << entry.depth << '\n';
                     i++;
                 }
             }
@@ -670,22 +643,18 @@ void out_board(bool has_Ttable = false, bool has_hash = false, bool has_board2 =
         }
     }
 
-    if (has_hash)
-        std::cout << "Hash:" << std::endl << "  " << hash << std::endl;
+    if (has_Zhash)
+        std::cout << "Zhash:" << std::endl << "  " << Zhash << std::endl;
 
-    if (has_board2)
+    if (has_board)
     {
-        std::cout << "Board2:" << std::endl;
         for (short player = BLACK; player <= WHITE; player++)
         {
             for (short shape = PAWN; shape < MAX_SHAPE; shape++)
             {
                 std::cout << std::setw(3) << '[' << char_of[player][shape] << "]=";
-                for (short indB2 = 0; indB2 < NUM[shape]; indB2++)
-                {
-                    short ind = board2[player][shape][indB2];
-                    std::cout << ind << ",";
-                }
+                for (short ind = 0; ind < NUM[player][shape]; ind++)
+                    std::cout << board[player][shape][ind].square << ",";
             }
             std::cout << std::endl;
         }
@@ -693,40 +662,43 @@ void out_board(bool has_Ttable = false, bool has_hash = false, bool has_board2 =
 
     if (has_attack)
     {
-        for (bool player : { BLACK, WHITE })
+        for (short player = BLACK; player <= WHITE; player++)
         {
             std::cout << "Player" << player << " attacks: " << std::endl << "  ";
-            for (short ind = 0; ind < AREA; ind++)
+            for (short sq = 0; sq < AREA; sq++)
             {
-                short tile = board[ind];
-                if (tile && player_of(tile) != player && is_attacked(!player, ind))
-                    std::cout << ind << ", ";
+                BoardEntry *ptr = squares[sq];
+                if (ptr && (*ptr).player != player && is_attacked(PLAYER(!player), (*ptr).square))
+                    std::cout << sq << ", ";
             }
             std::cout << std::endl;
         }
     }
 
     std::cout << "   +-------------BOT-------------+" << std::endl;
-    for (short ind = 0; ind < AREA; ind++)
+    for (short sq = 0; sq < AREA; sq++)
     {
-        if (x_of(ind) > 7) // sentinels
+        if (x_of(sq) > 7) // sentinels
         {
-            std::cout << " . . | " << ind - 1 << std::endl;
-            ind++;
+            std::cout << " . . | " << sq - 1 << std::endl;
+            sq++;
         }
         else
         {
-            if (x_of(ind) == 0)
-                std::cout << std::setw(2) << ind << " |";
+            if (x_of(sq) == 0)
+                std::cout << std::setw(2) << sq << " |";
 
-            short tile = board[ind];
-            std::cout << std::setw(3) << char_of[player_of(tile)][shape_of(tile)];
+            BoardEntry *ptr = squares[sq];
+            if (squares[sq])
+                std::cout << std::setw(3) << char_of[(*ptr).player][(*ptr).shape];
+            else
+                std::cout << std::setw(3) << '_';
         }
     }
     std::cout << "   +-------------YOU-------------+" << std::endl;
 }
 
-short approx(bool player)
+short approx(PLAYER player)
 {
     short midgame_worths[MAX_PLAYER] = {0, 0}, endgame_worths[MAX_PLAYER] = {0, 0};
     float worths = 0; // sum of worth of remaining pieces
@@ -735,13 +707,13 @@ short approx(bool player)
     {
         for (short shape = KNIGHT; shape < KING; shape++) // start from knight since WORTH_DIV2[PAWN] = 0
         {
-            for (short indB2 = 0; indB2 < NUM[shape]; indB2++)
+            for (short ind = 0; ind < NUM[player][shape]; ind++)
             {
-                short ind = board2[player][shape][indB2];
-                if (ind >= 0) // if not captured
+                short sq = board[player][shape][ind].square;
+                if (sq >= 0) // if not captured
                 {
-                    midgame_worths[player] += MIDGAME_WORTH[player][shape][ind];
-                    endgame_worths[player] += ENDGAME_WORTH[player][shape][ind];
+                    midgame_worths[player] += MIDGAME_WORTH[player][shape][sq];
+                    endgame_worths[player] += ENDGAME_WORTH[player][shape][sq];
                     worths += WORTH_DIV2[shape];
                 }
             }
@@ -755,7 +727,7 @@ short approx(bool player)
 }
 
 /**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Hashed Transposition Table
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Zhashed Transposition Table
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n = 0 if draw.
@@ -763,33 +735,34 @@ short approx(bool player)
  *      n = SHRT_MAX if checked by MAXER.
  *      n = SHRT_MIN if checked by MINER.
  */
-short minimax(bool player, short depth, short alpha, short beta)
+short minimax(PLAYER player, short depth, short alpha, short beta)
 {
-    Ttable_entry &entry = Ttable[hash % TTABLE_SZ];
-    if (entry.hash == hash)
+    TtableEntry &entry = Ttable[Zhash % TTABLE_SZ];
+    if (entry.Zhash == Zhash)
         return entry.score;
 
-    short capture = 0, score = 0, child_score = 0;
+    short score = 0, child_score = 0;
     bool has_move = false, is_maxer = player;
+    BoardEntry *capture;
 
     if (depth > MAX_DEPTH)
         return approx(player) * (is_maxer ? 1 : -1);
 
     for (short shape = PAWN; shape < MAX_SHAPE; shape++)
     {
-        for (short indB2 = 0; indB2 < NUM[shape]; indB2++)
+        for (short ind = 0; ind < NUM[player][shape]; ind++)
         {
-            short ind_i = board2[player][shape][indB2];
-            if (ind_i >= 0) // if not captured
+            short sq_i = board[player][shape][ind].square;
+            if (sq_i >= 0) // if not captured
             {
-                for (short ind_f : gen_moves(player, shape, ind_i))
+                for (short sq_f : gen_moves(player, shape, sq_i))
                 {
-                    capture = move(player, shape, indB2, ind_i, ind_f);
+                    capture = move(player, SHAPE(shape), sq_i, sq_f);
 
-                    if (!is_attacked(player, board2[player][KING][0]))
+                    if (!is_attacked(player, board[player][KING][0].square))
                     {
                         has_move = true;
-                        child_score = minimax(!player, depth+1, alpha, beta);
+                        child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
 
                         if (is_maxer)
                             alpha = std::max(alpha, child_score);
@@ -798,14 +771,14 @@ short minimax(bool player, short depth, short alpha, short beta)
 
                         if (beta <= alpha)
                         {
-                            move(player, shape, indB2, ind_f, ind_i, capture); // undo move
+                            move(player, SHAPE(shape), sq_f, sq_i, capture); // undo
                             score = (is_maxer) ? alpha : beta;
                             if (depth > entry.depth)
-                                entry = {hash, score, depth};
+                                entry = {Zhash, score, depth};
                             return score;
                         }
                     }
-                    move(player, shape, indB2, ind_f, ind_i, capture); // undo move
+                    move(player, SHAPE(shape), sq_f, sq_i, capture); // undo
                 }
             }
         }
@@ -814,11 +787,11 @@ short minimax(bool player, short depth, short alpha, short beta)
     if (has_move)
         score = (is_maxer) ? alpha : beta;
 
-    else if (is_attacked(player, board2[player][KING][0])) // checkmated
+    else if (is_attacked(player, board[player][KING][0].square)) // checkmated
         score = (is_maxer) ? SHRT_MIN : SHRT_MAX;
     
     if (depth > entry.depth)
-        entry = {hash, score, depth};
+        entry = {Zhash, score, depth};
     return score;
 }
 
@@ -826,50 +799,49 @@ short minimax(bool player, short depth, short alpha, short beta)
  * Behave the same as minimax(), except with recording the best move and without recording to Ttable and AlphaBeta Prunning.
  * @return 0: bot has move(s). 1: bot is checkmated. 2: bot is stalemated.
  */
-short bot_move(bool player)
+short bot_move(PLAYER player)
 {
-    short capture = 0, child_score = 0, best_indB2 = 0, best_shape = 0, best_ind_i = 0, best_ind_f = 0, best_score = (player) ? SHRT_MIN : SHRT_MAX;
+    short child_score = 0, best_shape = 0, best_sq_i = 0, best_sq_f = 0, best_score = (player) ? SHRT_MIN : SHRT_MAX;
     bool has_move = false, is_maxer = player;
+    BoardEntry *capture;
 
     for (short shape = PAWN; shape < MAX_SHAPE; shape++)
     {
-        for (short indB2 = 0; indB2 < NUM[shape]; indB2++)
+        for (short ind = 0; ind < NUM[player][shape]; ind++)
         {
-            short ind_i = board2[player][shape][indB2];
-            if (ind_i >= 0) // if not captured
+            short sq_i = board[player][shape][ind].square;
+            if (sq_i >= 0) // if not captured
             {
-                std::cout << "Possible {move, score} from " << ind_i << ": ";
-                for (short ind_f : gen_moves(player, shape, ind_i))
+                std::cout << "Possible {move, score} from " << sq_i << ": ";
+                for (short sq_f : gen_moves(player, shape, sq_i))
                 {
-                    capture = move(player, shape, indB2, ind_i, ind_f);
+                    capture = move(player, SHAPE(shape), sq_i, sq_f);
                     
-                    if (!is_attacked(player, board2[player][KING][0]))
+                    if (!is_attacked(player, board[player][KING][0].square))
                     {
                         has_move = true;
-                        child_score = minimax(!player, 1, SHRT_MIN, SHRT_MAX);
+                        child_score = minimax(PLAYER(!player), PAWN, SHRT_MIN, SHRT_MAX);
                     
-                        std::cout << "{" << ind_f << ", " << child_score << "}, ";
+                        std::cout << "{" << sq_f << ", " << child_score << "}, ";
                         if (is_maxer)
                         {
                             if (child_score > best_score)
                             {
-                                best_indB2 = indB2;
                                 best_shape = shape;
-                                best_ind_i = ind_i;
-                                best_ind_f = ind_f;
+                                best_sq_i = sq_i;
+                                best_sq_f = sq_f;
                                 best_score = child_score;
                             }
                         }
                         else if (child_score < best_score) // if MINER
                         {
-                            best_indB2 = indB2;
                             best_shape = shape;
-                            best_ind_i = ind_i;
-                            best_ind_f = ind_f;
+                            best_sq_i = sq_i;
+                            best_sq_f = sq_f;
                             best_score = child_score;
                         }
                     }
-                    move(player, shape, indB2, ind_f, ind_i, capture); // undo move
+                    move(player, SHAPE(shape), sq_f, sq_i, capture); // undo
                 }
                 std::cout << std::endl;
             }
@@ -877,11 +849,11 @@ short bot_move(bool player)
     }
     if (has_move)
     {
-        std::cout << "Chosen move: " << best_ind_i << " to " << best_ind_f << std::endl;
-        move(player, best_shape, best_indB2, best_ind_i, best_ind_f);
+        std::cout << "Chosen move: " << best_sq_i << " to " << best_sq_f << std::endl;
+        move(player, SHAPE(best_shape), best_sq_i, best_sq_f);
         return 0;
     }
-    else if (!has_move && is_attacked(player, board2[player][KING][0])) // checkmated
+    else if (!has_move && is_attacked(player, board[player][KING][0].square)) // checkmated
         return 1;
     
     else
@@ -890,65 +862,69 @@ short bot_move(bool player)
 
 /**
  * @return whether move is valid.
- * 0: valid, 1: broken chess rule, 2: empty initial tile, 3: outside play area, 4: friendly fire, 5: blocked path
- * TODO: 5: impersonating bot, 6: checkmate, 7: draw
+ * 0: valid. 1: illegal move vector. 2: empty initial square. 3: impersonating bot. 4: outside play area, 5: friendly fire, 6: blocked path, 7: checked
  */
-short validate(short ind_i, short ind_f)
+short validate(short sq_i, short sq_f)
 {
-    bool player = player_of(board[ind_i]);
-    short shape = shape_of(board[ind_i]),
-        dx = abs(x_of(ind_f) - x_of(ind_i)),
-        dy = abs(y_of(ind_f) - y_of(ind_i));
-
-    if (!board[ind_i])
+    BoardEntry *ptr = squares[sq_i];
+    if (!ptr)
         return 2;
 
-    if (!is_play_area(ind_f))
-        return 3;
+    SHAPE shape = (*ptr).shape; 
+    PLAYER player = (*ptr).player;
+    short dx = abs(x_of(sq_f) - x_of(sq_i)),
+          dy = abs(y_of(sq_f) - y_of(sq_i));
 
-    if (board[ind_f] && !can_capture(player, board[ind_f]))
+    if (player == BOT)
+        return 3;
+    
+    if (!is_play_area(sq_f))
         return 4;
 
-    // king && check direction
+    if (squares[sq_f] && !can_capture(player, *squares[sq_f]))
+        return 5;
+
     if (shape == KING && std::max(dx, dy) > 1)
         return 1;
 
-    // knight && check direction
-    if ((shape == KNIGHT) && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
+    if (shape == KNIGHT && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
         return 1;
 
-    // queen && check direction
     if (shape == QUEEN && dx && dy && dx != dy)
         return 1; 
 
-    // rook && check direction
     if (shape == ROOK && dx && dy)
         return 1;
     
-    // bishop && check direction
     if (shape == BISHOP && dx != dy)
         return 1;
 
-    // pawn && check direction
     if (shape == PAWN)
     {
-        if (rel_foward(player)*(ind_f - ind_i) < 0) // moved backward
+        if (rel_foward(player)*(sq_f - sq_i) < 0) // moved backward
             return 1;
 
-        if (!board[ind_f])
+        if (!squares[sq_f])
         {
             if (dx != 0)
                 return 1;
-            
-            if (dy > 1 + (y_of(ind_i) == 1 || y_of(ind_i) == 6)) // if pawn at starting line: dy > 1+(1); else: dy>1+(0)
+
+            if (dy > 1 + (y_of(sq_i) == 1 || y_of(sq_i) == 6)) // if pawn at starting line: dy > 1+(1); else: dy>1+(0)
                 return 1;
         }
         else if (dx != 1 || dy != 1) // && not empty
             return 1;
     }
 
-    if (shape != KING && shape != KNIGHT && !is_path_clear(ind_i, ind_f, dx, dy))
-        return 5;
+    if (shape != KING && shape != KNIGHT && !is_path_clear(sq_i, sq_f, dx, dy))
+        return 6;
+
+    BoardEntry *capture = move(player, shape, sq_i, sq_f);
+    if (is_attacked(player, board[player][KING][0].square))
+    {
+        move(player, shape, sq_f, sq_i, capture); // undo
+        return 7;
+    }
 
     // if all valid
     return 0;
@@ -956,7 +932,7 @@ short validate(short ind_i, short ind_f)
 
 void console_play()
 {
-    short ind_i = 0, ind_f = 0, invalid = 0;
+    short sq_i = 0, sq_f = 0, invalid = 0;
     std::vector<short> inds_f;
 
     while (true)
@@ -964,17 +940,17 @@ void console_play()
         out_board(true, true, true, true);
         do
         {
-            std::cout << "Initial and final tile (ind_i ind_f): ";
-            std::cin >> ind_i >> ind_f;
-            invalid = validate(ind_i, ind_f);
+            std::cout << "Initial and final entry (intitial index, final index): ";
+            std::cin >> sq_i >> sq_f;
+            invalid = validate(sq_i, sq_f);
             if (invalid)
                 std::cout << "Invalid move, broken rule #" << invalid << std::endl;
         }
         while (invalid);
-        move(WHITE, shape_of(board[ind_i]), indB2_of(board[ind_i]), ind_i, ind_f);
+        move(HUMAN, (*squares[sq_i]).shape, sq_i, sq_f);
         std::cout << std::endl;
 
-        short outcome = bot_move(BLACK);
+        short outcome = bot_move(BOT);
         if (outcome == 1)
             std::cout << "You won!\nPC: NOOO MY DIGNITY!" << std::endl;
         else if (outcome == 2)
