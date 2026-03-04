@@ -67,12 +67,12 @@ short BEGIN[MAX_PLAYER][MAX_SHAPE] = {{0}};
 
 /**
  * @related board
- * SIZE_OF
+ * NUM_OF
  * └── 0,1: see enum PLAYER
  *     └── 0...5: see enum SHAPE
  *         └── number of pieces of each shape of each player.
  */
-short SIZE_OF[MAX_PLAYER][MAX_SHAPE] = {{0}};
+short NUM_OF[MAX_PLAYER][MAX_SHAPE] = {{0}};
 
 /** 
  * squares
@@ -336,13 +336,13 @@ inline bool is_play_area(short sq)
 }
 
 /**
- * Initialize squares, BEGIN, SIZE_OF, MAX_WORTH_DIV2, Zplayer, Ztable, Zhash, black in MID/ENDGAME_WORTH.
+ * Initialize squares, BEGIN, NUM_OF, MAX_WORTH_DIV2, Zplayer, Ztable, Zhash, black in MID/ENDGAME_WORTH.
  */
 void init_all()
 {
     for (short player = BLACK; player <= WHITE; player++)
     {
-        // squares, BEGIN, SIZE_OF, MAX_WORTH_DIV2
+        // squares, BEGIN, NUM_OF, MAX_WORTH_DIV2
         for (short ind = 0; ind < 32; ind++)
         {
             BoardEntry &entry = board[player][ind];
@@ -351,10 +351,10 @@ void init_all()
             if (sq >= 0)
             {
                 squares[sq] = &entry;
-                if (SIZE_OF[player][shape] == 0)
+                if (NUM_OF[player][shape] == 0)
                     BEGIN[player][shape] = ind;
-                SIZE_OF[player][shape] ++;
-                MAX_WORTH_DIV2 += WORTH_DIV2[shape]*SIZE_OF[player][shape];
+                NUM_OF[player][shape] ++;
+                MAX_WORTH_DIV2 += WORTH_DIV2[shape]*NUM_OF[player][shape];
             }
         }
 
@@ -557,7 +557,7 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy knights by iterating over all enemy knights.
-    for (short num = 0; num < SIZE_OF[!player][KNIGHT]; num++)
+    for (short num = 0; num < NUM_OF[!player][KNIGHT]; num++)
     {
         sq_foe = board[!player][KNIGHT+num].sq;
         if (sq_foe >= 0) // if not captured
@@ -570,7 +570,7 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy bishops
-    for (short num = 0; num < SIZE_OF[!player][BISHOP]; num++)
+    for (short num = 0; num < NUM_OF[!player][BISHOP]; num++)
     {
         sq_foe = board[!player][BISHOP+num].sq;
         if (sq_foe >= 0)
@@ -583,7 +583,7 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy rooks
-    for (short num = 0; num < SIZE_OF[!player][ROOK]; num++)
+    for (short num = 0; num < NUM_OF[!player][ROOK]; num++)
     {
         sq_foe = board[!player][ROOK+num].sq;
         if (sq_foe >= 0)
