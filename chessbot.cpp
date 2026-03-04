@@ -36,7 +36,7 @@ short NUM[MAX_PLAYER][MAX_SHAPE] = {};
 struct BoardEntry {
     PLAYER player = BLACK;
     SHAPE shape = NONE;
-    short square = -1; // index on squares
+    short sq = -1; // index on squares
 };
 /**
  * board
@@ -347,7 +347,7 @@ void init_all()
         {
             for (BoardEntry &entry : board[player][shape])
             {
-                short sq = entry.square;
+                short sq = entry.sq;
                 if (sq >= 0)
                 {
                     squares[sq] = &entry;
@@ -408,17 +408,17 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     BoardEntry *capture = squares[sq_f];
     if (capture)
     {
-        (*capture).square -= AREA; // move ind_f outside board
+        (*capture).sq -= AREA; // move ind_f outside board
         Zhash ^= Ztable[!player][(*capture).shape][sq_f];
     }
 
     else if (restore) // if entry to restore exists
     {
-        (*restore).square += AREA; // move ind_f outside board back inside
+        (*restore).sq += AREA; // move ind_f outside board back inside
         Zhash ^= Ztable[!player][(*restore).shape][sq_i];
     }
 
-    (*squares[sq_i]).square = sq_f;
+    (*squares[sq_i]).sq = sq_f;
 
     // add to final square
     squares[sq_f] = squares[sq_i];
@@ -563,7 +563,7 @@ bool is_attacked(PLAYER player, short sq)
     // check for enemy knights by iterating over all enemy knights.
     for (short ind_foe = 0; ind_foe < NUM[!player][KNIGHT]; ind_foe++)
     {
-        sq_foe = board[!player][KNIGHT][ind_foe].square;
+        sq_foe = board[!player][KNIGHT][ind_foe].sq;
         if (sq_foe >= 0) // if not captured
         {
             dx = abs(x_of(sq_foe) - x_of(sq));
@@ -576,7 +576,7 @@ bool is_attacked(PLAYER player, short sq)
     // check for enemy bishops
     for (short ind_foe = 0; ind_foe < NUM[!player][BISHOP]; ind_foe++)
     {
-        sq_foe = board[!player][BISHOP][ind_foe].square;
+        sq_foe = board[!player][BISHOP][ind_foe].sq;
         if (sq_foe >= 0)
         {
             dx = abs(x_of(sq_foe) - x_of(sq));
@@ -589,7 +589,7 @@ bool is_attacked(PLAYER player, short sq)
     // check for enemy rooks
     for (short ind_foe = 0; ind_foe < NUM[!player][ROOK]; ind_foe++)
     {
-        sq_foe = board[!player][ROOK][ind_foe].square;
+        sq_foe = board[!player][ROOK][ind_foe].sq;
         if (sq_foe >= 0)
         {
             dx = abs(x_of(sq_foe) - x_of(sq));
@@ -600,7 +600,7 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy queen
-    sq_foe = board[!player][QUEEN][0].square;
+    sq_foe = board[!player][QUEEN][0].sq;
     if (sq_foe >= 0)
     {
         dx = abs(x_of(sq_foe) - x_of(sq));
@@ -610,7 +610,7 @@ bool is_attacked(PLAYER player, short sq)
     }
 
     // check for enemy king
-    sq_foe = board[!player][KING][0].square;
+    sq_foe = board[!player][KING][0].sq;
     dx = abs(x_of(sq_foe) - x_of(sq));
     dy = abs(y_of(sq_foe) - y_of(sq));
     if (std::max(dx, dy) == 1)
@@ -654,7 +654,7 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_board =
             {
                 std::cout << std::setw(3) << '[' << char_of[player][shape] << "]=";
                 for (short ind = 0; ind < NUM[player][shape]; ind++)
-                    std::cout << board[player][shape][ind].square << ",";
+                    std::cout << board[player][shape][ind].sq << ",";
             }
             std::cout << std::endl;
         }
@@ -668,7 +668,7 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_board =
             for (short sq = 0; sq < AREA; sq++)
             {
                 BoardEntry *ptr = squares[sq];
-                if (ptr && (*ptr).player != player && is_attacked(PLAYER(!player), (*ptr).square))
+                if (ptr && (*ptr).player != player && is_attacked(PLAYER(!player), (*ptr).sq))
                     std::cout << sq << ", ";
             }
             std::cout << std::endl;
@@ -709,7 +709,7 @@ short approx(PLAYER player)
         {
             for (short ind = 0; ind < NUM[player][shape]; ind++)
             {
-                short sq = board[player][shape][ind].square;
+                short sq = board[player][shape][ind].sq;
                 if (sq >= 0) // if not captured
                 {
                     midgame_worths[player] += MIDGAME_WORTH[player][shape][sq];
@@ -752,14 +752,14 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     {
         for (short ind = 0; ind < NUM[player][shape]; ind++)
         {
-            short sq_i = board[player][shape][ind].square;
+            short sq_i = board[player][shape][ind].sq;
             if (sq_i >= 0) // if not captured
             {
                 for (short sq_f : gen_moves(player, shape, sq_i))
                 {
                     capture = move(player, SHAPE(shape), sq_i, sq_f);
 
-                    if (!is_attacked(player, board[player][KING][0].square))
+                    if (!is_attacked(player, board[player][KING][0].sq))
                     {
                         has_move = true;
                         child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
@@ -787,7 +787,7 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     if (has_move)
         score = (is_maxer) ? alpha : beta;
 
-    else if (is_attacked(player, board[player][KING][0].square)) // checkmated
+    else if (is_attacked(player, board[player][KING][0].sq)) // checkmated
         score = (is_maxer) ? SHRT_MIN : SHRT_MAX;
     
     if (depth > entry.depth)
@@ -809,7 +809,7 @@ short bot_move(PLAYER player)
     {
         for (short ind = 0; ind < NUM[player][shape]; ind++)
         {
-            short sq_i = board[player][shape][ind].square;
+            short sq_i = board[player][shape][ind].sq;
             if (sq_i >= 0) // if not captured
             {
                 std::cout << "Possible {move, score} from " << sq_i << ": ";
@@ -817,7 +817,7 @@ short bot_move(PLAYER player)
                 {
                     capture = move(player, SHAPE(shape), sq_i, sq_f);
                     
-                    if (!is_attacked(player, board[player][KING][0].square))
+                    if (!is_attacked(player, board[player][KING][0].sq))
                     {
                         has_move = true;
                         child_score = minimax(PLAYER(!player), PAWN, SHRT_MIN, SHRT_MAX);
@@ -853,7 +853,7 @@ short bot_move(PLAYER player)
         move(player, SHAPE(best_shape), best_sq_i, best_sq_f);
         return 0;
     }
-    else if (!has_move && is_attacked(player, board[player][KING][0].square)) // checkmated
+    else if (!has_move && is_attacked(player, board[player][KING][0].sq)) // checkmated
         return 1;
     
     else
@@ -920,11 +920,12 @@ short validate(short sq_i, short sq_f)
         return 6;
 
     BoardEntry *capture = move(player, shape, sq_i, sq_f);
-    if (is_attacked(player, board[player][KING][0].square))
+    if (is_attacked(player, board[player][KING][0].sq))
     {
         move(player, shape, sq_f, sq_i, capture); // undo
         return 7;
     }
+    move(player, shape, sq_f, sq_i, capture); // undo
 
     // if all valid
     return 0;
@@ -940,7 +941,7 @@ void console_play()
         out_board(true, true, true, true);
         do
         {
-            std::cout << "Initial and final entry (intitial index, final index): ";
+            std::cout << "Initial and final entry (intitial square, final square): ";
             std::cin >> sq_i >> sq_f;
             invalid = validate(sq_i, sq_f);
             if (invalid)
