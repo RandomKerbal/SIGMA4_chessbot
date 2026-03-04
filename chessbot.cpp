@@ -367,9 +367,7 @@ void init_all()
             for (short sq = 0; sq < AREA; sq++)
             {
                 if (is_play_area(sq))
-                {
                     Ztable[player][shape][sq] = rng();
-                }
             }
         }
     }
