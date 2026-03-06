@@ -19,13 +19,21 @@ enum SHAPE: short {
     PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5, // start with shapes that capture more commonly to mimic human behavior and enable more AlphaBeta Prunning.
     MAX_SHAPE = 6
 };
+/**
+ * SHAPE_PHASE
+ * └── 0...5: see enum SHAPE
+ *     └── how much each shape contributes to the game's phase
+ * 
+ * values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
+ */
+const short SHAPE_PHASE[MAX_SHAPE] = { 0, 1, 1, 2, 4, 0 };
 
 const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
 
 struct BoardEntry {
     PLAYER player = BLACK;
     SHAPE shape = PAWN;
-    short sq = -1; // square
+    short sq = -1;
 };
 /**
  * board
@@ -89,69 +97,25 @@ BoardEntry* squares[AREA] = {nullptr};
  * Zplayer: random 64-bit integer
  * Zhash: Zobrist hash of board
  */
-unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{}}};
+unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 unsigned long long Zplayer = 0;
 unsigned long long Zhash = 0;
 
-/**
- * Transposition table.
- * index = Zhash % TTABLE_SZ; value = { Zhash, score }
- * 
- * 2 or more Zhash may have the same index.
- */
 const unsigned int TTABLE_SZ = std::pow(2, 22);
 struct TtableEntry {
     unsigned long long Zhash = 0;
     short score = 0;
-    short depth = 0;
+    short phase = 0;
 };
 std::vector<TtableEntry> Ttable(TTABLE_SZ, {0, 0, 0});
 
-const short K_VECTOR[8] = {
-    +1,             // (1, 0)
-    +1 + WIDTH,     // (1, 1)
-    +WIDTH,         // (0, 1)
-    -1 + WIDTH,     // (-1, 1)
-    -1,             // (-1, 0)
-    -1 - WIDTH,     // (-1, -1)
-    -WIDTH,         // (0, -1)
-    +1 - WIDTH      // (1, -1)
-};
-const short N_VECTOR[8] = {
-    2 + WIDTH,      // (2, 1)
-    1 + 2*WIDTH,    // (1, 2)
-   -1 + 2*WIDTH,    // (-1, 2)
-   -2 + WIDTH,      // (-2, 1)
-   -2 - WIDTH,      // (-2, -1)
-   -1 - 2*WIDTH,    // (-1, -2)
-    1 - 2*WIDTH,    // (1, -2)
-    2 - WIDTH       // (2, -1)
-};
-const short B_VECTOR[4] = {
-    +1 + WIDTH,     // down-right
-    +1 - WIDTH,     // up-right
-    -1 + WIDTH,     // down-left
-    -1 - WIDTH      // up-left
-};
-const short R_VECTOR[4] = {
-    +1,             // right
-    -1,             // left
-    +WIDTH,         // down
-    -WIDTH          // up
-};
-// no Q_VECTOR since it's a combination of B_VECTOR & R_VECTOR
-
+float PHASE_OPENING = 0; // sum of SHAPE_PHASE of all initial pieces
+short phase = 0; // sum of SHAPE_PHASE of all current pieces
+short worth_opening[MAX_PLAYER] = {0, 0};
+short worth_endgame[MAX_PLAYER] = {0, 0};
 
 /**
- * WORTH_DIV2
- * └── 0...5: see enum SHAPE
- *     └── worth of each shape floor-divide by 2
- */
-const short WORTH_DIV2[MAX_SHAPE] = { 0, 1, 1, 2, 4, 0 };
-short MAX_WORTH_DIV2 = 0; // sum of number of pieces of each shape except pawns * WORTH_DIV2 of each shape
-
-/**
- * midgame/endgame_val (aka piece-square table)
+ * SQ_WORTH_MID/ENDGAME (aka piece-square table)
  * └── 0,1: see enum PLAYER
  *     └── 0...5: see enum SHAPE
  *         └── 0...AREA-1: see main board
@@ -159,7 +123,7 @@ short MAX_WORTH_DIV2 = 0; // sum of number of pieces of each shape except pawns 
  * 
  * values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
-short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
+short SQ_WORTH_OPENING[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {}, // black initialize later
     {
         {   // pawn
@@ -224,7 +188,7 @@ short MIDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
         }
     }
 };
-short ENDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
+short SQ_WORTH_ENDGAME[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {}, // black initialize later
     {
         {   // pawn
@@ -290,6 +254,40 @@ short ENDGAME_WORTH[MAX_PLAYER][MAX_SHAPE][AREA] = {
     }
 };
 
+const short K_VECTOR[8] = {
+    +1,             // (1, 0)
+    +1 + WIDTH,     // (1, 1)
+    +WIDTH,         // (0, 1)
+    -1 + WIDTH,     // (-1, 1)
+    -1,             // (-1, 0)
+    -1 - WIDTH,     // (-1, -1)
+    -WIDTH,         // (0, -1)
+    +1 - WIDTH      // (1, -1)
+};
+const short N_VECTOR[8] = {
+    2 + WIDTH,      // (2, 1)
+    1 + 2*WIDTH,    // (1, 2)
+   -1 + 2*WIDTH,    // (-1, 2)
+   -2 + WIDTH,      // (-2, 1)
+   -2 - WIDTH,      // (-2, -1)
+   -1 - 2*WIDTH,    // (-1, -2)
+    1 - 2*WIDTH,    // (1, -2)
+    2 - WIDTH       // (2, -1)
+};
+const short B_VECTOR[4] = {
+    +1 + WIDTH,     // down-right
+    +1 - WIDTH,     // up-right
+    -1 + WIDTH,     // down-left
+    -1 - WIDTH      // up-left
+};
+const short R_VECTOR[4] = {
+    +1,             // right
+    -1,             // left
+    +WIDTH,         // down
+    -WIDTH          // up
+};
+// no Q_VECTOR since it's a combination of B_VECTOR & R_VECTOR
+
 /**
  * char_of
  * └── 0,1: see enum PLAYER
@@ -328,13 +326,13 @@ inline bool is_play_area(short sq)
 }
 
 /**
- * Initialize squares, BEGIN, MAX_WORTH_DIV2, Zplayer, Ztable, Zhash, black in MID/ENDGAME_WORTH.
+ * Initialize squares, BEGIN, PHASE_OPENING, worth, worth_opening, worth_endgame, Zplayer, Ztable, Zhash, black in MID/SQ_WORTH_ENDGAME.
  */
 void init_all()
 {
     for (short player = BLACK; player <= WHITE; player++)
     {
-        // squares, BEGIN, MAX_WORTH_DIV2
+        // squares, BEGIN, PHASE_OPENING, worth, worth_opening, worth_endgame
         SHAPE shape = PAWN, prev_shape = PAWN;
         for (short ind = 0; ind < 32; ind++)
         {
@@ -344,13 +342,16 @@ void init_all()
             {
                 shape = entry.shape;
                 squares[sq] = &entry;
-                if (shape == prev_shape + 1)
+                if (shape > prev_shape)
                     BEGIN[player][shape] = ind;
 
-                MAX_WORTH_DIV2 += WORTH_DIV2[shape];
+                phase += SHAPE_PHASE[shape];
+                worth_opening[player] += SQ_WORTH_OPENING[player][shape][ind];
+                worth_opening[player] += SQ_WORTH_ENDGAME[player][shape][ind];
                 prev_shape = shape;
             }
         }
+        PHASE_OPENING = phase;
 
         // Ztable
         for (short shape = PAWN; shape < MAX_SHAPE; shape++)
@@ -374,14 +375,14 @@ void init_all()
         }
     }
 
-    // black's MID/ENDGAME_WORTH = white's mirrored along x-axis
+    // black's MID/SQ_WORTH_ENDGAME = white's mirrored along x-axis
     for (short shape = PAWN; shape < MAX_SHAPE; shape++)
     {
         for (short sq = 0; sq < AREA; sq++)
         {
             short mirror = (HEIGHT-1 - y_of(sq))*WIDTH + x_of(sq);
-            MIDGAME_WORTH[BLACK][shape][sq] = MIDGAME_WORTH[WHITE][shape][mirror];
-            ENDGAME_WORTH[BLACK][shape][sq] = ENDGAME_WORTH[WHITE][shape][mirror];
+            SQ_WORTH_OPENING[BLACK][shape][sq] = SQ_WORTH_OPENING[WHITE][shape][mirror];
+            SQ_WORTH_ENDGAME[BLACK][shape][sq] = SQ_WORTH_ENDGAME[WHITE][shape][mirror];
 
         }
     }
@@ -398,16 +399,24 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     BoardEntry *capture = squares[sq_f];
     if (capture)
     {
-        BoardEntry &entry = *capture;
-        entry.sq -= AREA; // move ind_f outside board
-        Zhash ^= Ztable[!player][entry.shape][sq_f];
+        BoardEntry &entry_foe = *capture;
+        SHAPE shape_foe = entry_foe.shape;
+        entry_foe.sq -= AREA; // move ind_f outside board
+        Zhash ^= Ztable[!player][shape_foe][sq_f];
+        phase -= SHAPE_PHASE[shape_foe];
+        worth_opening[player] -= SQ_WORTH_OPENING[!player][shape_foe][sq_f];
+        worth_endgame[player] -= SQ_WORTH_ENDGAME[!player][shape_foe][sq_f];
     }
 
     else if (restore) // if entry to restore exists
     {
-        BoardEntry &entry = *restore;
-        entry.sq += AREA; // move ind_f outside board back inside
-        Zhash ^= Ztable[!player][entry.shape][sq_i];
+        BoardEntry &entry_foe = *restore;
+        SHAPE shape_foe = entry_foe.shape;
+        entry_foe.sq += AREA; // move ind_f outside board back inside
+        Zhash ^= Ztable[!player][shape_foe][sq_i];
+        phase += SHAPE_PHASE[shape_foe];
+        worth_opening[player] -= SQ_WORTH_OPENING[!player][shape_foe][sq_f];
+        worth_endgame[player] -= SQ_WORTH_ENDGAME[!player][shape_foe][sq_f];
     }
 
     (*squares[sq_i]).sq = sq_f;
@@ -415,10 +424,14 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     // add to final square
     squares[sq_f] = squares[sq_i];
     Zhash ^= Ztable[player][shape][sq_f];
+    worth_opening[player] += SQ_WORTH_OPENING[player][shape][sq_f];
+    worth_endgame[player] += SQ_WORTH_ENDGAME[player][shape][sq_f];
     
     // remove from initial square
     squares[sq_i] = restore;
     Zhash ^= Ztable[player][shape][sq_i];
+    worth_opening[player] -= SQ_WORTH_OPENING[player][shape][sq_i];
+    worth_endgame[player] -= SQ_WORTH_ENDGAME[player][shape][sq_i];
 
     // switch player of Zhash
     Zhash ^= Zplayer;
@@ -609,7 +622,7 @@ bool is_attacked(PLAYER player, short sq)
     return 0;
 }
 
-void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index = false, bool has_attack = false)
+void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index = false, bool has_phase = false, bool has_attack = false)
 {
     if (has_Ttable)
     {
@@ -621,16 +634,14 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
             {
                 if (entry.Zhash)
                 {
-                    std::cout << "  " << entry.Zhash << ", " << entry.score << ", " << entry.depth << '\n';
+                    std::cout << "  " << entry.Zhash << ", " << entry.score << ", " << entry.phase << '\n';
                     i++;
                 }
             }
             else
-            {
-                std::cout << "  ... (" << TTABLE_SZ - 10 << " more)" << std::endl;
                 break;
-            }
         }
+        std::cout << "  ... (" << TTABLE_SZ - 10 << " more)" << std::endl;
     }
 
     if (has_Zhash)
@@ -638,17 +649,22 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
 
     if (has_index)
     {
+        std::cout << "Indexes: " << std::endl << "  ";
         for (short player = BLACK; player <= WHITE; player++)
         {
             for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
             {
                 BoardEntry &board_entry = board[player][ind];
-                std::cout << std::setw(3) << '[' << char_of[player][board_entry.shape] << "]=";
-                std::cout << board_entry.sq << ",";
+                std::cout << '[' << char_of[player][board_entry.shape] << "]=";
+                std::cout << board_entry.sq << ", ";
             }
         }
         std::cout << std::endl;
     }
+
+    if (has_phase)
+        std::cout << "Distance from endgame: " << std::endl << "  " << phase/PHASE_OPENING*100 << "%" << std::endl;
+
 
     if (has_attack)
     {
@@ -690,29 +706,10 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
 
 short approx(PLAYER player)
 {
-    short midgame_worths[MAX_PLAYER] = {0, 0}, endgame_worths[MAX_PLAYER] = {0, 0};
-    float worths = 0; // sum of worth of remaining pieces
+    short score_midgame = worth_opening[player] - worth_opening[!player],
+          score_endgame = worth_endgame[player] - worth_endgame[!player];
 
-    for (short player = BLACK; player <= WHITE; player++)
-    {
-        for (short ind = BEGIN[player][KNIGHT]; ind <= BEGIN[player][KING]; ind++) // start from knight since WORTH_DIV2[PAWN] = 0
-        {
-            BoardEntry &board_entry = board[player][ind];
-            SHAPE shape = board_entry.shape;
-            short sq = board_entry.sq;
-            if (sq >= 0) // if not captured
-            {
-                midgame_worths[player] += MIDGAME_WORTH[player][shape][sq];
-                endgame_worths[player] += ENDGAME_WORTH[player][shape][sq];
-                worths += WORTH_DIV2[shape];
-            }
-        }
-    }
-
-    short midgame_score = midgame_worths[player] - midgame_worths[!player],
-        endgame_score = endgame_worths[player] - endgame_worths[!player];
-
-    return endgame_score - (worths/MAX_WORTH_DIV2)*(endgame_score - midgame_score); // linear interpolation
+    return score_endgame - (phase/PHASE_OPENING)*(score_endgame - score_midgame); // linear interpolation
 }
 
 /**
@@ -720,7 +717,7 @@ short approx(PLAYER player)
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n = 0 if draw.
- *      n ∈ [-MAX_WORTH_DIV2, 0) U (0, MAX_WORTH_DIV2] if over MAX_DEPTH.
+ *      n ∈ [-PHASE_OPENING, 0) U (0, PHASE_OPENING] if over MAX_DEPTH.
  *      n = SHRT_MAX if checked by MAXER.
  *      n = SHRT_MIN if checked by MINER.
  */
@@ -762,8 +759,8 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
                     {
                         move(player, shape, sq_f, sq_i, capture); // undo
                         score = (player) ? alpha : beta;
-                        if (depth > Ttable_entry.depth)
-                            Ttable_entry = {Zhash, score, depth};
+                        if (phase < Ttable_entry.phase) // if many Zhash have the same index, keep the one closer to endgame
+                            Ttable_entry = {Zhash, score, phase};
                         return score;
                     }
                 }
@@ -778,8 +775,8 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
         score = (player) ? SHRT_MIN : SHRT_MAX;
     
-    if (depth > Ttable_entry.depth)
-        Ttable_entry = {Zhash, score, depth};
+    if (phase < Ttable_entry.phase)
+        Ttable_entry = {Zhash, score, phase};
     return score;
 }
 
@@ -926,7 +923,7 @@ void console_play()
 
     while (true)
     {
-        out_board(true, true, true, true);
+        out_board(true, true, true, true, true);
         do
         {
             std::cout << "Initial and final entry (intitial square, final square): ";
