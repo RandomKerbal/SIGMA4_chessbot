@@ -105,9 +105,9 @@ const unsigned int TTABLE_SZ = std::pow(2, 22);
 struct TtableEntry {
     unsigned long long Zhash = 0;
     short score = 0;
-    short phase = 0;
+    short phase = SHRT_MAX;
 };
-std::vector<TtableEntry> Ttable(TTABLE_SZ, {0, 0, 0});
+std::vector<TtableEntry> Ttable(TTABLE_SZ);
 
 float PHASE_OPENING = 0; // sum of SHAPE_PHASE of all initial pieces
 short phase = 0; // sum of SHAPE_PHASE of all current pieces
@@ -115,11 +115,11 @@ short worth_opening[MAX_PLAYER] = {0, 0};
 short worth_endgame[MAX_PLAYER] = {0, 0};
 
 /**
- * SQ_WORTH_MID/ENDGAME (aka piece-square table)
+ * SQ_WORTH_OPENING/ENDGAME (aka piece-square table)
  * └── 0,1: see enum PLAYER
  *     └── 0...5: see enum SHAPE
  *         └── 0...AREA-1: see main board
- *             └── worth of each shape based on midgame/endgame position with player at the bottom
+ *             └── worth of each shape based on opening/endgame position with player at the bottom
  * 
  * values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
@@ -325,15 +325,24 @@ inline bool is_play_area(short sq)
     return x_of(sq) < 8 && unsigned(sq) < AREA; // if x < 0, it becomes a huge unsigned number > AREA.
 }
 
-/**
- * Initialize squares, BEGIN, PHASE_OPENING, worth, worth_opening, worth_endgame, Zplayer, Ztable, Zhash, black in MID/SQ_WORTH_ENDGAME.
- */
 void init_all()
 {
+    // black's SQ_WORTH_OPENING/ENDGAME = white's mirrored along x-axis
+    for (short shape = PAWN; shape < MAX_SHAPE; shape++)
+    {
+        for (short sq = 0; sq < AREA; sq++)
+        {
+            short sq_mirror = (HEIGHT-1 - y_of(sq))*WIDTH + x_of(sq);
+            SQ_WORTH_OPENING[BLACK][shape][sq] = SQ_WORTH_OPENING[WHITE][shape][sq_mirror];
+            SQ_WORTH_ENDGAME[BLACK][shape][sq] = SQ_WORTH_ENDGAME[WHITE][shape][sq_mirror];
+
+        }
+    }
+
     for (short player = BLACK; player <= WHITE; player++)
     {
         // squares, BEGIN, PHASE_OPENING, worth, worth_opening, worth_endgame
-        SHAPE shape = PAWN, prev_shape = PAWN;
+        SHAPE prev_shape = PAWN, shape = PAWN;
         for (short ind = 0; ind < 32; ind++)
         {
             BoardEntry &entry = board[player][ind];
@@ -341,13 +350,13 @@ void init_all()
             if (sq >= 0)
             {
                 shape = entry.shape;
-                squares[sq] = &entry;
                 if (shape > prev_shape)
                     BEGIN[player][shape] = ind;
 
+                squares[sq] = &entry;
                 phase += SHAPE_PHASE[shape];
-                worth_opening[player] += SQ_WORTH_OPENING[player][shape][ind];
-                worth_opening[player] += SQ_WORTH_ENDGAME[player][shape][ind];
+                worth_opening[player] += SQ_WORTH_OPENING[player][shape][sq];
+                worth_endgame[player] += SQ_WORTH_ENDGAME[player][shape][sq];
                 prev_shape = shape;
             }
         }
@@ -374,22 +383,10 @@ void init_all()
             Zhash ^= Ztable[entry.player][entry.shape][sq];
         }
     }
-
-    // black's MID/SQ_WORTH_ENDGAME = white's mirrored along x-axis
-    for (short shape = PAWN; shape < MAX_SHAPE; shape++)
-    {
-        for (short sq = 0; sq < AREA; sq++)
-        {
-            short mirror = (HEIGHT-1 - y_of(sq))*WIDTH + x_of(sq);
-            SQ_WORTH_OPENING[BLACK][shape][sq] = SQ_WORTH_OPENING[WHITE][shape][mirror];
-            SQ_WORTH_ENDGAME[BLACK][shape][sq] = SQ_WORTH_ENDGAME[WHITE][shape][mirror];
-
-        }
-    }
 }
 
 /**
- * @return captured entry.
+ * @return pointer to captured entry.
  * When undoing moves,
  * 1. returned value is directly fed into parameter: restore.
  * 2. sq_i and sq_f switch places.
@@ -400,23 +397,27 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     if (capture)
     {
         BoardEntry &entry_foe = *capture;
+        entry_foe.sq -= AREA; // move entry's sq outside board
+
+        PLAYER foe = entry_foe.player;
         SHAPE shape_foe = entry_foe.shape;
-        entry_foe.sq -= AREA; // move ind_f outside board
-        Zhash ^= Ztable[!player][shape_foe][sq_f];
+        Zhash ^= Ztable[foe][shape_foe][sq_f];
         phase -= SHAPE_PHASE[shape_foe];
-        worth_opening[player] -= SQ_WORTH_OPENING[!player][shape_foe][sq_f];
-        worth_endgame[player] -= SQ_WORTH_ENDGAME[!player][shape_foe][sq_f];
+        worth_opening[foe] -= SQ_WORTH_OPENING[foe][shape_foe][sq_f];
+        worth_endgame[foe] -= SQ_WORTH_ENDGAME[foe][shape_foe][sq_f];
     }
 
     else if (restore) // if entry to restore exists
     {
         BoardEntry &entry_foe = *restore;
+        entry_foe.sq += AREA; // move entry's sq back inside
+
+        PLAYER foe = entry_foe.player;
         SHAPE shape_foe = entry_foe.shape;
-        entry_foe.sq += AREA; // move ind_f outside board back inside
-        Zhash ^= Ztable[!player][shape_foe][sq_i];
+        Zhash ^= Ztable[foe][shape_foe][sq_i];
         phase += SHAPE_PHASE[shape_foe];
-        worth_opening[player] -= SQ_WORTH_OPENING[!player][shape_foe][sq_f];
-        worth_endgame[player] -= SQ_WORTH_ENDGAME[!player][shape_foe][sq_f];
+        worth_opening[foe] += SQ_WORTH_OPENING[foe][shape_foe][sq_i];
+        worth_endgame[foe] += SQ_WORTH_ENDGAME[foe][shape_foe][sq_i];
     }
 
     (*squares[sq_i]).sq = sq_f;
@@ -571,7 +572,7 @@ bool is_attacked(PLAYER player, short sq)
         {
             dx = abs(x_of(sq_foe) - x_of(sq));
             dy = abs(y_of(sq_foe) - y_of(sq));
-            if (dx == 1 && dy == 2 && dx == 2 && dy == 1)
+            if ((dx == 1 && dy == 2) || (dx == 2 && dy == 1))
                 return 1;
         }
     }
@@ -622,8 +623,9 @@ bool is_attacked(PLAYER player, short sq)
     return 0;
 }
 
-void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index = false, bool has_phase = false, bool has_attack = false)
+void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index = false, bool has_phase = false, bool has_worth = false, bool has_attack = false)
 {
+    const char TAB[4] = "   ";
     if (has_Ttable)
     {
         std::cout << "Ttable:" << std::endl;
@@ -634,22 +636,22 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
             {
                 if (entry.Zhash)
                 {
-                    std::cout << "  " << entry.Zhash << ", " << entry.score << ", " << entry.phase << '\n';
+                    std::cout << TAB << entry.Zhash << ", " << entry.score << ", " << entry.phase << std::endl;
                     i++;
                 }
             }
             else
                 break;
         }
-        std::cout << "  ... (" << TTABLE_SZ - 10 << " more)" << std::endl;
+        std::cout << TAB << "... (" << TTABLE_SZ - 10 << " more)" << std::endl;
     }
 
     if (has_Zhash)
-        std::cout << "Zhash:" << std::endl << "  " << Zhash << std::endl;
+        std::cout << "Zhash:" << std::endl << TAB << Zhash << std::endl;
 
     if (has_index)
     {
-        std::cout << "Indexes: " << std::endl << "  ";
+        std::cout << "Indexes: " << std::endl << TAB;
         for (short player = BLACK; player <= WHITE; player++)
         {
             for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
@@ -663,14 +665,29 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
     }
 
     if (has_phase)
-        std::cout << "Distance from endgame: " << std::endl << "  " << phase/PHASE_OPENING*100 << "%" << std::endl;
+        std::cout << "Distance from endgame:" << std::endl << TAB << phase << '/' << PHASE_OPENING << std::endl;
+
+    if (has_worth)
+    {
+        std::cout << "Worth as opening:" << std::endl;
+        for (short player = BLACK; player <= WHITE; player++)
+        {
+            std::cout << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << worth_opening[player] << std::endl;
+        }
+        std::cout << "Worth as endgame:" << std::endl;
+        for (short player = BLACK; player <= WHITE; player++)
+        {
+            std::cout << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << worth_endgame[player] << std::endl;
+        }
+    }
 
 
     if (has_attack)
     {
+        std::cout << "Tile attacked by:" << std::endl;
         for (short player = BLACK; player <= WHITE; player++)
         {
-            std::cout << "Player" << player << " attacks: " << std::endl << "  ";
+            std::cout << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=";
             for (short sq = 0; sq < AREA; sq++)
             {
                 BoardEntry *ptr = squares[sq];
@@ -681,7 +698,7 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
         }
     }
 
-    std::cout << "   +-------------BOT-------------+" << std::endl;
+    std::cout << TAB << "+-------------BOT-------------+" << std::endl;
     for (short sq = 0; sq < AREA; sq++)
     {
         if (x_of(sq) > 7) // sentinels
@@ -701,15 +718,15 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
                 std::cout << std::setw(3) << '_';
         }
     }
-    std::cout << "   +-------------YOU-------------+" << std::endl;
+    std::cout << TAB << "+-------------YOU-------------+" << std::endl;
 }
 
-short approx(PLAYER player)
+inline short approx(PLAYER player)
 {
-    short score_midgame = worth_opening[player] - worth_opening[!player],
+    short score_opening = worth_opening[player] - worth_opening[!player],
           score_endgame = worth_endgame[player] - worth_endgame[!player];
 
-    return score_endgame - (phase/PHASE_OPENING)*(score_endgame - score_midgame); // linear interpolation
+    return score_endgame - (phase/PHASE_OPENING)*(score_endgame - score_opening); // linear interpolation
 }
 
 /**
@@ -806,7 +823,7 @@ short bot_move(PLAYER player)
                 if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
                     has_move = true;
-                    child_score = minimax(PLAYER(!player), PAWN, SHRT_MIN, SHRT_MAX);
+                    child_score = minimax(PLAYER(!player), 1, SHRT_MIN, SHRT_MAX);
                 
                     std::cout << "{" << sq_f << ", " << child_score << "}, ";
                     if (player)
@@ -923,7 +940,7 @@ void console_play()
 
     while (true)
     {
-        out_board(true, true, true, true, true);
+        out_board(true, true, true, true, true, true);
         do
         {
             std::cout << "Initial and final entry (intitial square, final square): ";
