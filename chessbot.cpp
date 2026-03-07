@@ -8,7 +8,7 @@
 
 std::mt19937_64 rng(0);
 
-const short MAX_DEPTH = 5;
+const short MAX_DEPTH = 6;
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -16,7 +16,7 @@ enum PLAYER: short {
     BOT = BLACK, HUMAN = WHITE,
 };
 enum SHAPE: short {
-    PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5, // start with shapes that capture more commonly to mimic human behavior and enable more AlphaBeta Prunning.
+    PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5,
     MAX_SHAPE = 6
 };
 /**
@@ -447,31 +447,92 @@ inline bool can_capture(PLAYER player, BoardEntry &entry)
     return entry.player != player && entry.shape != KING;
 }
 
-std::vector<short> gen_moves(PLAYER player, short shape, short sq_i)
+inline void MVV_sort_push(std::vector<short> &moves, short &quiet_begin, SHAPE &max_capture, SHAPE capture, short sq)
+{
+    moves.emplace_back(sq);
+    if (capture > max_capture)
+    {
+        max_capture = capture;
+        std::swap(moves.front(), moves.back());
+    }
+
+    std::swap(moves[quiet_begin], moves.back());
+    quiet_begin++;
+}
+
+std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
 {
     std::vector<short> moves;
     moves.reserve(27);
-    short sq = 0;
-    BoardEntry *ptr = nullptr;
+    SHAPE max_capture = PAWN;
+    short sq = 0, quiet_begin = 0;
     
-    if (shape == KING)
+    // MVV: start with capturing most worthy shape, then quiet moves.
+    if (shape == PAWN)
     {
-        for (short v: K_VECTOR)
+        short y_i = y_of(sq_i), dy = rel_foward(player);
+        if (1 <= y_i && y_i <= 6)
         {
-            sq = sq_i + v;
-            ptr = squares[sq];
-            if (is_play_area(sq) && (!ptr || can_capture(player, *ptr)))
+            sq = sq_i + dy;
+
+            // capture moves
+            for (short dx = -1; dx <= 1; dx += 2)
+            {
+                short sq_capture = sq + dx;
+                if (squares[sq_capture] && can_capture(player, *squares[sq_capture]))
+                    MVV_sort_push(moves, quiet_begin, max_capture, (*squares[sq_capture]).shape, sq_capture);
+            }
+
+            // y-moves
+            if (!squares[sq])
+            {
                 moves.emplace_back(sq);
+                if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if pawn can step 2
+                {
+                    sq += dy;
+                    if (!squares[sq])
+                        moves.emplace_back(sq);
+                }
+            }
         }
     }
-    if (shape == KNIGHT)
+    else if (shape == KNIGHT)
     {
         for (short v: N_VECTOR)
         {
             sq = sq_i + v;
-            ptr = squares[sq];
-            if (is_play_area(sq) && (!ptr || can_capture(player, *ptr)))
+            if (is_play_area(sq))
+            {
+                if (!squares[sq])
+                    moves.emplace_back(sq);
+                else if (can_capture(player, *squares[sq]))
+                    MVV_sort_push(moves, quiet_begin, max_capture, (*squares[sq]).shape, sq);
+            }
+        }
+    }
+    else if (shape == KING)
+    {
+        for (short v: K_VECTOR)
+        {
+            sq = sq_i + v;
+            if (is_play_area(sq))
+            {
+                if (!squares[sq])
+                    moves.emplace_back(sq);
+                else if (can_capture(player, *squares[sq]))
+                    MVV_sort_push(moves, quiet_begin, max_capture, (*squares[sq]).shape, sq);
+            }
+        }
+    }
+    if (shape == BISHOP || shape == QUEEN)
+    {
+        for (short v: B_VECTOR)
+        {
+            for (sq = sq_i + v; is_play_area(sq) && !squares[sq]; sq += v)
                 moves.emplace_back(sq);
+            
+            if (is_play_area(sq) && can_capture(player, *squares[sq]))
+                MVV_sort_push(moves, quiet_begin, max_capture, (*squares[sq]).shape, sq);
         }
     }
     if (shape == ROOK || shape == QUEEN)
@@ -483,49 +544,7 @@ std::vector<short> gen_moves(PLAYER player, short shape, short sq_i)
                 moves.emplace_back(sq);
 
             if (is_play_area(sq) && can_capture(player, *squares[sq]))
-                moves.emplace_back(sq);
-
-        }
-    }
-    if (shape == BISHOP || shape == QUEEN)
-    {
-        for (short v: B_VECTOR)
-        {
-            for (sq = sq_i + v; is_play_area(sq) && !squares[sq]; sq += v)
-                moves.emplace_back(sq);
-            
-            if (is_play_area(sq) && can_capture(player, *squares[sq]))
-                moves.emplace_back(sq);
-        }
-    }
-    if (shape == PAWN)
-    {
-        short y_i = y_of(sq_i), dy = rel_foward(player);
-        if (1 <= y_i && y_i <= 6)
-        {
-            sq = sq_i + dy;
-
-            // capture moves
-            for (short dx = -1; dx <= 1; dx += 2)
-            {
-                short sq_f = sq + dx;
-                ptr = squares[sq_f];
-                if (ptr && can_capture(player, *ptr))
-                    moves.emplace_back(sq_f);
-            }
-
-            // y-moves
-            if (!squares[sq])
-            {
-                moves.emplace_back(sq);
-            
-                if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if pawn can step 2
-                {
-                    sq += dy;
-                    if (!squares[sq])
-                        moves.emplace_back(sq);
-                }
-            }
+                MVV_sort_push(moves, quiet_begin, max_capture, (*squares[sq]).shape, sq);
         }
     }
 
@@ -554,8 +573,7 @@ bool is_attacked(PLAYER player, short sq)
 {
     short i = 0, ind = 0, dx = 0, dy = 0, sq_foe = 0;
 
-    // start with shapes more likely to be attacked by (pawns -> knights -> bishops -> rooks -> queens -> king).
-    // check for foe pawns by being a pawn and check where I can capture.
+    // check for foe pawns by being a pawn and check where I can capture
     sq_foe = sq + rel_foward(player);
     for (dx = -1; dx <= 1; dx += 2)
     {
@@ -564,7 +582,7 @@ bool is_attacked(PLAYER player, short sq)
             return 1;
     }
 
-    // check for foe knights by iterating over all foe knights.
+    // check for foe knights by iterating over all foe knights
     for (ind = BEGIN[!player][KNIGHT]; ind < BEGIN[!player][BISHOP]; ind++)
     {
         sq_foe = board[!player][ind].sq;
@@ -684,7 +702,7 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
 
     if (has_attack)
     {
-        std::cout << "Tile attacked by:" << std::endl;
+        std::cout << "Tile(s) attacked by:" << std::endl;
         for (short player = BLACK; player <= WHITE; player++)
         {
             std::cout << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=";
@@ -730,7 +748,7 @@ inline short approx(PLAYER player)
 }
 
 /**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Zhashed Transposition Table
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Zhashed Transposition Table + MVV-LVA
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n = 0 if draw.
@@ -751,7 +769,7 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     if (depth > MAX_DEPTH)
         return approx(player) * (player ? 1 : -1);
 
-    for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
+    for (short ind = 0; ind <= BEGIN[player][KING]; ind++) // LVA: start with most worthless shape
     {
         BoardEntry &board_entry = board[player][ind];
         short sq_i = board_entry.sq;
@@ -776,7 +794,7 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
                     {
                         move(player, shape, sq_f, sq_i, capture); // undo
                         score = (player) ? alpha : beta;
-                        if (phase < Ttable_entry.phase) // if many Zhash have the same index, keep the one closer to endgame
+                        if (phase <= Ttable_entry.phase) // if many Zhash have the same index, keep the one closer to endgame
                             Ttable_entry = {Zhash, score, phase};
                         return score;
                     }
@@ -792,7 +810,7 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
         score = (player) ? SHRT_MIN : SHRT_MAX;
     
-    if (phase < Ttable_entry.phase)
+    if (phase <= Ttable_entry.phase)
         Ttable_entry = {Zhash, score, phase};
     return score;
 }
