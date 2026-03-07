@@ -94,11 +94,11 @@ BoardEntry* squares[AREA] = {nullptr};
  *         └── 0...80: index on main board
  *             └── random 64-bit integer
  * 
- * Zplayer: random 64-bit integer
+ * ZBLACK: random 64-bit integer
  * Zhash: Zobrist hash of board
  */
 unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
-unsigned long long Zplayer = 0;
+unsigned long long ZBLACK = 0;
 unsigned long long Zhash = 0;
 
 const unsigned int TTABLE_SZ = std::pow(2, 22);
@@ -372,7 +372,7 @@ void init_all()
             }
         }
     }
-    Zplayer = rng();
+    ZBLACK = rng();
 
     // Zhash
     for (short sq = 0; sq < AREA; sq++)
@@ -435,7 +435,7 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     worth_endgame[player] -= WORTH_ENDGAME[player][shape][sq_i];
 
     // switch player of Zhash
-    Zhash ^= Zplayer;
+    Zhash ^= ZBLACK;
     return del;
 }
 
