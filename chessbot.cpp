@@ -8,7 +8,7 @@
 
 std::mt19937_64 rng(0);
 
-const short MAX_DEPTH = 6;
+const short MAX_DEPTH = 5;
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -93,21 +93,19 @@ BoardEntry* squares[AREA] = {nullptr};
  *     └── 0...5: see enum SHAPE
  *         └── 0...80: index on main board
  *             └── random 64-bit integer
- * 
- * ZBLACK: random 64-bit integer
- * Zhash: Zobrist hash of board
  */
 unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 unsigned long long ZBLACK = 0;
-unsigned long long Zhash = 0;
+unsigned long long hash = 0;
 
-const unsigned int TTABLE_SZ = std::pow(2, 22);
+const unsigned int TABLE_SZ = 4194304; // 2^22
 struct TtableEntry {
-    unsigned long long Zhash = 0;
+    unsigned long long hash = 0;
     short score = 0;
     short phase = SHRT_MAX;
 };
-std::vector<TtableEntry> Ttable(TTABLE_SZ);
+TtableEntry t_table[TABLE_SZ]; // Transposition Table
+unsigned long long h_table[MAX_DEPTH]; // Move History Table
 
 float PHASE_OPENING = 0; // sum of SHAPE_PHASE of all initial pieces
 short phase = 0; // sum of SHAPE_PHASE of all current pieces
@@ -374,13 +372,13 @@ void init_all()
     }
     ZBLACK = rng();
 
-    // Zhash
+    // hash
     for (short sq = 0; sq < AREA; sq++)
     {
         if (squares[sq])
         {
             BoardEntry &entry = *squares[sq];
-            Zhash ^= Ztable[entry.player][entry.shape][sq];
+            hash ^= Ztable[entry.player][entry.shape][sq];
         }
     }
 }
@@ -397,24 +395,24 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     if (del)
     {
         BoardEntry &del_entry = *del;
-        del_entry.sq -= AREA; // move entry's sq outside board
+        del_entry.sq -= AREA; // move sq outside board
 
         PLAYER del_player = del_entry.player;
         SHAPE del_shape = del_entry.shape;
-        Zhash ^= Ztable[del_player][del_shape][sq_f];
+        hash ^= Ztable[del_player][del_shape][sq_f];
         phase -= SHAPE_PHASE[del_shape];
         worth_opening[del_player] -= WORTH_OPENING[del_player][del_shape][sq_f];
         worth_endgame[del_player] -= WORTH_ENDGAME[del_player][del_shape][sq_f];
     }
 
-    else if (add) // if entry to add exists
+    else if (add)
     {
         BoardEntry &add_entry = *add;
-        add_entry.sq += AREA; // move entry's sq back inside
+        add_entry.sq += AREA; // move sq back inside
 
         PLAYER add_player = add_entry.player;
         SHAPE add_shape = add_entry.shape;
-        Zhash ^= Ztable[add_player][add_shape][sq_i];
+        hash ^= Ztable[add_player][add_shape][sq_i];
         phase += SHAPE_PHASE[add_shape];
         worth_opening[add_player] += WORTH_OPENING[add_player][add_shape][sq_i];
         worth_endgame[add_player] += WORTH_ENDGAME[add_player][add_shape][sq_i];
@@ -424,18 +422,18 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
 
     // add to final square
     squares[sq_f] = squares[sq_i];
-    Zhash ^= Ztable[player][shape][sq_f];
+    hash ^= Ztable[player][shape][sq_f];
     worth_opening[player] += WORTH_OPENING[player][shape][sq_f];
     worth_endgame[player] += WORTH_ENDGAME[player][shape][sq_f];
     
     // remove from initial square
     squares[sq_i] = add;
-    Zhash ^= Ztable[player][shape][sq_i];
+    hash ^= Ztable[player][shape][sq_i];
     worth_opening[player] -= WORTH_OPENING[player][shape][sq_i];
     worth_endgame[player] -= WORTH_ENDGAME[player][shape][sq_i];
 
-    // switch player of Zhash
-    Zhash ^= ZBLACK;
+    // switch player of hash
+    hash ^= ZBLACK;
     return del;
 }
 
@@ -471,9 +469,10 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
     // MVV: start with capturing most worthy shape, then quiet moves.
     if (shape == PAWN)
     {
-        short y_i = y_of(sq_i), dy = rel_foward(player);
+        short y_i = y_of(sq_i);
         if (1 <= y_i && y_i <= 6)
         {
+            short dy = rel_foward(player);
             sq = sq_i + dy;
 
             // capture moves
@@ -597,18 +596,22 @@ inline bool is_path_clear(short sq_i, short sq_f, short dx, short dy)
  */
 bool is_attacked(PLAYER player, short sq)
 {
-    short i = 0, ind = 0, dx = 0, dy = 0, sq_foe = 0;
+    short i = 0, ind = 0, dx = 0, dy = 0, y = 0, sq_foe = 0;
 
     // check for foe pawns by being a pawn and check where I can capture
-    sq_foe = sq + rel_foward(player);
-    for (dx = -1; dx <= 1; dx += 2)
+    y = y_of(sq);
+    if (1 <= y && y <= 6)
     {
-        short sq_capture = sq_foe + dx;
-        if (squares[sq_capture])
+        sq_foe = sq + rel_foward(player);
+        for (dx = -1; dx <= 1; dx += 2)
         {
-            BoardEntry capture = *squares[sq_capture];
-            if (capture.player != player && capture.shape == PAWN)
-                return 1;
+            short sq_capture = sq_foe + dx;
+            if (squares[sq_capture])
+            {
+                BoardEntry capture = *squares[sq_capture];
+                if (capture.player != player && capture.shape == PAWN)
+                    return 1;
+            }
         }
     }
 
@@ -671,31 +674,31 @@ bool is_attacked(PLAYER player, short sq)
     return 0;
 }
 
-void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index = false, bool has_phase = false, bool has_worth = false, bool has_attack = false)
+void out_board(bool has_t_table = false, bool has_hash = false, bool has_index = false, bool has_phase = false, bool has_worth = false, bool has_attack = false)
 {
     const char TAB[4] = "   ";
-    if (has_Ttable)
+    if (has_t_table)
     {
-        std::cout << "Ttable:" << std::endl;
+        std::cout << "Transposition Table:" << std::endl;
         short i = 0;
-        for (TtableEntry entry : Ttable)
+        for (TtableEntry t_entry : t_table)
         {
             if (i < 10)
             {
-                if (entry.Zhash)
+                if (t_entry.hash)
                 {
-                    std::cout << TAB << entry.Zhash << ", " << entry.score << ", " << entry.phase << std::endl;
+                    std::cout << TAB << t_entry.hash << ", " << t_entry.score << ", " << t_entry.phase << std::endl;
                     i++;
                 }
             }
             else
                 break;
         }
-        std::cout << TAB << "... (" << TTABLE_SZ - 10 << " more)" << std::endl;
+        std::cout << TAB << "... (" << TABLE_SZ - 10 << " more)" << std::endl;
     }
 
-    if (has_Zhash)
-        std::cout << "Zhash:" << std::endl << TAB << Zhash << std::endl;
+    if (has_hash)
+        std::cout << "hash:" << std::endl << TAB << hash << std::endl;
 
     if (has_index)
     {
@@ -760,7 +763,7 @@ void out_board(bool has_Ttable = false, bool has_Zhash = false, bool has_index =
                 std::cout << std::setw(2) << sq << " |";
 
             BoardEntry *ptr = squares[sq];
-            if (squares[sq])
+            if (ptr)
                 std::cout << std::setw(3) << char_of[(*ptr).player][(*ptr).shape];
             else
                 std::cout << std::setw(3) << '_';
@@ -777,9 +780,18 @@ inline short approx(PLAYER player)
     return score_endgame - (phase/PHASE_OPENING)*(score_endgame - score_opening); // linear interpolation
 }
 
+inline bool is_repeat3(short depth)
+{
+    // no need to check [depth-1], [depth-2], [depth-3]
+    if (depth >= 4 && hash == h_table[depth-4])
+        return true;
+    else
+        return false;
+}
+
 /**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Zhashed Transposition Table + MVV-LVA
- * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Threefold Repitition Check
+ * In first call, use depth = 0, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n = 0 if draw.
  *      n ∈ [-PHASE_OPENING, 0) U (0, PHASE_OPENING] if over MAX_DEPTH.
@@ -788,9 +800,9 @@ inline short approx(PLAYER player)
  */
 short minimax(PLAYER player, short depth, short alpha, short beta)
 {
-    TtableEntry &Ttable_entry = Ttable[Zhash % TTABLE_SZ];
-    if (Ttable_entry.Zhash == Zhash)
-        return Ttable_entry.score;
+    TtableEntry &t_entry = t_table[hash % TABLE_SZ];
+    if (t_entry.hash == hash)
+        return t_entry.score;
 
     short score = 0, child_score = 0;
     bool has_move = false;
@@ -799,20 +811,20 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     if (depth > MAX_DEPTH)
         return approx(player) * (player ? 1 : -1);
 
-    for (short ind = 0; ind <= BEGIN[player][KING]; ind++) // LVA: start with most worthless shape (PAWN)
+    for (short ind = 0; ind <= BEGIN[player][KING]; ind++) // LVA: start with most worthless shapes
     {
-        BoardEntry &board_entry = board[player][ind];
-        short sq_i = board_entry.sq;
+        short sq_i = board[player][ind].sq;
         if (sq_i >= 0) // if not captured
         {
-            SHAPE shape = board_entry.shape;
+            SHAPE shape = board[player][ind].shape;
             for (short sq_f : gen_moves(player, shape, sq_i))
             {
                 capture = move(player, shape, sq_i, sq_f);
 
-                if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
+                if (!is_repeat3(depth) && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
                     has_move = true;
+                    h_table[depth] = hash;
                     child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
 
                     if (player)
@@ -824,8 +836,8 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
                     {
                         move(player, shape, sq_f, sq_i, capture); // undo
                         score = (player) ? alpha : beta;
-                        if (phase <= Ttable_entry.phase) // if many Zhash have the same index, keep the one closer to endgame
-                            Ttable_entry = {Zhash, score, phase};
+                        if (phase <= t_entry.phase) // if many hash have the same index, keep the one closer to endgame
+                            t_entry = {hash, score, phase};
                         return score;
                     }
                 }
@@ -840,13 +852,13 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
         score = (player) ? SHRT_MIN : SHRT_MAX;
     
-    if (phase <= Ttable_entry.phase)
-        Ttable_entry = {Zhash, score, phase};
+    if (phase <= t_entry.phase)
+        t_entry = {hash, score, phase};
     return score;
 }
 
 /**
- * Behave the same as minimax(), except with recording the best move and without recording to Ttable and AlphaBeta Prunning.
+ * Behave the same as minimax(), except with recording the best move and without recording to t_table and AlphaBeta Prunning.
  * @return 0: bot has move(s). 1: bot is checkmated. 2: bot is stalemated.
  */
 short bot_move(PLAYER player)
@@ -854,15 +866,14 @@ short bot_move(PLAYER player)
     short child_score = 0, best_sq_i = 0, best_sq_f = 0, best_score = (player) ? SHRT_MIN : SHRT_MAX;
     SHAPE best_shape;
     bool has_move = false;
-    BoardEntry *capture;
+    BoardEntry *capture = nullptr;
 
     for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
     {
-        BoardEntry &board_entry = board[player][ind];
-        short sq_i = board_entry.sq;
+        short sq_i = board[player][ind].sq;
         if (sq_i >= 0) // if not captured
         {
-            SHAPE shape = board_entry.shape;
+            SHAPE shape = board[player][ind].shape;
             std::cout << "Possible {move, score} from " << sq_i << ": ";
             for (short sq_f : gen_moves(player, shape, sq_i))
             {
@@ -871,7 +882,7 @@ short bot_move(PLAYER player)
                 if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
                     has_move = true;
-                    child_score = minimax(PLAYER(!player), 1, SHRT_MIN, SHRT_MAX);
+                    child_score = minimax(PLAYER(!player), 0, SHRT_MIN, SHRT_MAX);
                 
                     std::cout << "{" << sq_f << ", " << child_score << "}, ";
                     if (player)
