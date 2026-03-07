@@ -115,7 +115,7 @@ short worth_opening[MAX_PLAYER] = {0, 0};
 short worth_endgame[MAX_PLAYER] = {0, 0};
 
 /**
- * SQ_WORTH_OPENING/ENDGAME (aka piece-square table)
+ * WORTH_OPENING/ENDGAME (aka piece-square table)
  * └── 0,1: see enum PLAYER
  *     └── 0...5: see enum SHAPE
  *         └── 0...AREA-1: see main board
@@ -123,7 +123,7 @@ short worth_endgame[MAX_PLAYER] = {0, 0};
  * 
  * values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
-short SQ_WORTH_OPENING[MAX_PLAYER][MAX_SHAPE][AREA] = {
+short WORTH_OPENING[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {}, // black initialize later
     {
         {   // pawn
@@ -188,7 +188,7 @@ short SQ_WORTH_OPENING[MAX_PLAYER][MAX_SHAPE][AREA] = {
         }
     }
 };
-short SQ_WORTH_ENDGAME[MAX_PLAYER][MAX_SHAPE][AREA] = {
+short WORTH_ENDGAME[MAX_PLAYER][MAX_SHAPE][AREA] = {
     {}, // black initialize later
     {
         {   // pawn
@@ -327,14 +327,14 @@ inline bool is_play_area(short sq)
 
 void init_all()
 {
-    // black's SQ_WORTH_OPENING/ENDGAME = white's mirrored along x-axis
+    // black's WORTH_OPENING/ENDGAME = white's mirrored along x-axis
     for (short shape = PAWN; shape < MAX_SHAPE; shape++)
     {
         for (short sq = 0; sq < AREA; sq++)
         {
             short sq_mirror = (HEIGHT-1 - y_of(sq))*WIDTH + x_of(sq);
-            SQ_WORTH_OPENING[BLACK][shape][sq] = SQ_WORTH_OPENING[WHITE][shape][sq_mirror];
-            SQ_WORTH_ENDGAME[BLACK][shape][sq] = SQ_WORTH_ENDGAME[WHITE][shape][sq_mirror];
+            WORTH_OPENING[BLACK][shape][sq] = WORTH_OPENING[WHITE][shape][sq_mirror];
+            WORTH_ENDGAME[BLACK][shape][sq] = WORTH_ENDGAME[WHITE][shape][sq_mirror];
 
         }
     }
@@ -355,8 +355,8 @@ void init_all()
 
                 squares[sq] = &entry;
                 phase += SHAPE_PHASE[shape];
-                worth_opening[player] += SQ_WORTH_OPENING[player][shape][sq];
-                worth_endgame[player] += SQ_WORTH_ENDGAME[player][shape][sq];
+                worth_opening[player] += WORTH_OPENING[player][shape][sq];
+                worth_endgame[player] += WORTH_ENDGAME[player][shape][sq];
                 prev_shape = shape;
             }
         }
@@ -403,8 +403,8 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
         SHAPE shape_foe = entry_foe.shape;
         Zhash ^= Ztable[foe][shape_foe][sq_f];
         phase -= SHAPE_PHASE[shape_foe];
-        worth_opening[foe] -= SQ_WORTH_OPENING[foe][shape_foe][sq_f];
-        worth_endgame[foe] -= SQ_WORTH_ENDGAME[foe][shape_foe][sq_f];
+        worth_opening[foe] -= WORTH_OPENING[foe][shape_foe][sq_f];
+        worth_endgame[foe] -= WORTH_ENDGAME[foe][shape_foe][sq_f];
     }
 
     else if (restore) // if entry to restore exists
@@ -416,8 +416,8 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
         SHAPE shape_foe = entry_foe.shape;
         Zhash ^= Ztable[foe][shape_foe][sq_i];
         phase += SHAPE_PHASE[shape_foe];
-        worth_opening[foe] += SQ_WORTH_OPENING[foe][shape_foe][sq_i];
-        worth_endgame[foe] += SQ_WORTH_ENDGAME[foe][shape_foe][sq_i];
+        worth_opening[foe] += WORTH_OPENING[foe][shape_foe][sq_i];
+        worth_endgame[foe] += WORTH_ENDGAME[foe][shape_foe][sq_i];
     }
 
     (*squares[sq_i]).sq = sq_f;
@@ -425,14 +425,14 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     // add to final square
     squares[sq_f] = squares[sq_i];
     Zhash ^= Ztable[player][shape][sq_f];
-    worth_opening[player] += SQ_WORTH_OPENING[player][shape][sq_f];
-    worth_endgame[player] += SQ_WORTH_ENDGAME[player][shape][sq_f];
+    worth_opening[player] += WORTH_OPENING[player][shape][sq_f];
+    worth_endgame[player] += WORTH_ENDGAME[player][shape][sq_f];
     
     // remove from initial square
     squares[sq_i] = restore;
     Zhash ^= Ztable[player][shape][sq_i];
-    worth_opening[player] -= SQ_WORTH_OPENING[player][shape][sq_i];
-    worth_endgame[player] -= SQ_WORTH_ENDGAME[player][shape][sq_i];
+    worth_opening[player] -= WORTH_OPENING[player][shape][sq_i];
+    worth_endgame[player] -= WORTH_ENDGAME[player][shape][sq_i];
 
     // switch player of Zhash
     Zhash ^= Zplayer;
