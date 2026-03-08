@@ -445,28 +445,34 @@ inline bool can_capture(PLAYER player, PLAYER capture_player, SHAPE capture_shap
     return capture_player != player && capture_shape != KING;
 }
 
-inline void MVV_sort_insert(std::vector<short> &moves, short &quiet_begin, SHAPE (&capture_shape_LS)[2], SHAPE capture_shape, short sq)
+inline void MVV_sort_insert(std::vector<short> &moves, short &capture_end, SHAPE &capture_shape_max, SHAPE &capture_shape_min, SHAPE capture_shape, short sq)
 {
     moves.emplace_back(sq);
 
-    if (capture_shape > PAWN) // pawn is unworthy
+    if (capture_shape > PAWN) // pawn is unworthy to sort
     {
-        std::swap(moves.back(), moves[quiet_begin]);
+        std::swap(moves.back(), moves[capture_end]);
 
         // partial bubble sort
-        if (capture_shape > capture_shape_LS[0]) // largest
+        if (capture_shape >= capture_shape_max)
         {
-            capture_shape_LS[0] = capture_shape;
-            std::swap(moves[quiet_begin], moves[1]);
-            std::swap(moves[1], moves.front());
+            std::swap(moves[capture_end], moves[1]);
+            if (capture_shape > capture_shape_max)
+            {
+                std::swap(moves[1], moves[0]);
+                capture_shape_max = capture_shape;
+            }
         }
-        else if (capture_shape <= capture_shape_LS[1]) // smallest
-            capture_shape_LS[1] = capture_shape;
-
+        else if (capture_shape <= capture_shape_min)
+        {
+            // DO NOT COMBINE 2 IFs
+            if (capture_shape < capture_shape_min)
+                capture_shape_min = capture_shape;
+        }
         else // somewhere middle
-            std::swap(moves[quiet_begin], moves[quiet_begin-1]);
+            std::swap(moves[capture_end], moves[capture_end-1]);
 
-        quiet_begin++;
+        capture_end++;
     }
 }
 
@@ -475,8 +481,8 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
     std::vector<short> moves;
     moves.reserve(27);
     BoardEntry capture;
-    SHAPE capture_shape = PAWN, capture_shape_LS[2] = {PAWN, KING}; // LS = Largest Smallest
-    short sq = 0, quiet_begin = 0;
+    SHAPE capture_shape = PAWN, capture_shape_max = PAWN, capture_shape_min = KING;
+    short sq = 0, capture_end = 0;
     
     // MVV: start with capturing most worthy shapes, then quiet moves.
     if (shape == PAWN)
@@ -495,7 +501,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                        MVV_sort_insert(moves, capture_end, capture_shape_max, capture_shape_min, capture_shape, sq);
                 }
             }
 
@@ -526,7 +532,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                        MVV_sort_insert(moves, capture_end, capture_shape_max, capture_shape_min, capture_shape, sq);
                 }
             }
         }
@@ -545,7 +551,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                        MVV_sort_insert(moves, capture_end, capture_shape_max, capture_shape_min, capture_shape, sq);
                 }
             }
         }
@@ -562,7 +568,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                 capture = *squares[sq];
                 capture_shape = capture.shape;
                 if (can_capture(player, capture.player, capture_shape))
-                    MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                    MVV_sort_insert(moves, capture_end, capture_shape_max, capture_shape_min, capture_shape, sq);
             }
         }
     }
@@ -579,7 +585,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                 capture = *squares[sq];
                 capture_shape = capture.shape;
                 if (can_capture(player, capture.player, capture_shape))
-                    MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                    MVV_sort_insert(moves, capture_end, capture_shape_max, capture_shape_min, capture_shape, sq);
             }
         }
     }
@@ -788,7 +794,7 @@ inline short approx(PLAYER player)
     short score_opening = worth_opening[player] - worth_opening[!player],
           score_endgame = worth_endgame[player] - worth_endgame[!player];
 
-    return score_endgame - (phase/PHASE_OPENING)*(score_endgame - score_opening); // linear interpolation
+    return (score_endgame - (phase/PHASE_OPENING)*(score_endgame - score_opening)) * (player ? 1 : -1); // linear interpolation
 }
 
 inline bool is_repeat3(short depth)
@@ -816,12 +822,12 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     if (t_entry.hash == hash)
         return t_entry.score;
 
-    short score = 0, child_score = 0;
+    short score = 0, approx_score = 0, child_score = 0;
     bool has_move = false;
     BoardEntry *capture = nullptr;
 
     if (depth >= MAX_DEPTH)
-        return approx(player) * (player ? 1 : -1);
+        return approx(player);
 
     for (short ind = 0; ind <= BEGIN[player][KING]; ind++) // LVA: start with most worthless shapes
     {
@@ -838,17 +844,15 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
                     has_move = true;
                     m_table[depth] = hash;
                     child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
-
                     if (player)
                         alpha = std::max(alpha, child_score);
                     else
                         beta = std::min(beta, child_score);
-
                     if (beta <= alpha)
                     {
                         move(player, shape, sq_f, sq_i, capture); // undo
                         score = (player) ? alpha : beta;
-                        if (phase <= t_entry.phase) // if many hash have the same index, keep the one closer to endgame
+                        if (phase <= t_entry.phase) // in hash collision, keep the one closer to endgame
                             t_entry = {hash, score, phase};
                         return score;
                     }
@@ -894,6 +898,7 @@ short bot_move(PLAYER player)
                 if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
                     has_move = true;
+                    m_table[0] = hash;
                     child_score = minimax(PLAYER(!player), 0, SHRT_MIN, SHRT_MAX);
                 
                     std::cout << "{" << sq_f << ", " << child_score << "}, ";
