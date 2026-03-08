@@ -8,7 +8,7 @@
 
 std::mt19937_64 rng(0);
 
-const short MAX_DEPTH = 5;
+const short MAX_DEPTH = 6;
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -105,7 +105,7 @@ struct TtableEntry {
     short phase = SHRT_MAX;
 };
 TtableEntry t_table[TABLE_SZ]; // Transposition Table
-unsigned long long h_table[MAX_DEPTH]; // Move History Table
+unsigned long long m_table[MAX_DEPTH]; // Move History Table
 
 float PHASE_OPENING = 0; // sum of SHAPE_PHASE of all initial pieces
 short phase = 0; // sum of SHAPE_PHASE of all current pieces
@@ -783,14 +783,15 @@ inline short approx(PLAYER player)
 inline bool is_repeat3(short depth)
 {
     // no need to check [depth-1], [depth-2], [depth-3]
-    if (depth >= 4 && hash == h_table[depth-4])
+    if (depth >= 4 && hash == m_table[depth-4])
+        // (depth >= 6 && hash == m_table[depth-6])
         return true;
     else
         return false;
 }
 
 /**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Threefold Repitition Check
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Hashing Transposition Table + MVV LVA + Threefold Repetition Check
  * In first call, use depth = 0, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n = 0 if draw.
@@ -808,7 +809,7 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     bool has_move = false;
     BoardEntry *capture = nullptr;
 
-    if (depth > MAX_DEPTH)
+    if (depth >= MAX_DEPTH)
         return approx(player) * (player ? 1 : -1);
 
     for (short ind = 0; ind <= BEGIN[player][KING]; ind++) // LVA: start with most worthless shapes
@@ -824,7 +825,7 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
                 if (!is_repeat3(depth) && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
                     has_move = true;
-                    h_table[depth] = hash;
+                    m_table[depth] = hash;
                     child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
 
                     if (player)
