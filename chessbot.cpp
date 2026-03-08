@@ -447,6 +447,7 @@ inline bool can_capture(PLAYER player, PLAYER capture_player, SHAPE capture_shap
 
 inline void MVV_sort_insert(std::vector<short> &moves, short &capture_end, SHAPE &capture_shape_max, SHAPE &capture_shape_min, SHAPE capture_shape, short sq)
 {
+    // MVV: by with capturing most worthy shapes, then quiet moves
     moves.emplace_back(sq);
 
     if (capture_shape > PAWN) // pawn is unworthy to sort
@@ -481,10 +482,9 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
     std::vector<short> moves;
     moves.reserve(27);
     BoardEntry capture;
-    SHAPE capture_shape = PAWN, capture_shape_max = PAWN, capture_shape_min = KING;
+    SHAPE capture_shape, capture_shape_max = KNIGHT, capture_shape_min = KING; // max is not PAWN
     short sq = 0, capture_end = 0;
-    
-    // MVV: start with capturing most worthy shapes, then quiet moves.
+
     if (shape == PAWN)
     {
         short y_i = y_of(sq_i);
