@@ -466,37 +466,36 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
     SHAPE capture_shape = PAWN, max_capture_shape = PAWN;
     short sq = 0, quiet_begin = 0;
     
-    // MVV: start with capturing most worthy shape, then quiet moves.
+    // MVV: start with capturing most worthy shapes, then quiet moves.
     if (shape == PAWN)
     {
         short y_i = y_of(sq_i);
         if (1 <= y_i && y_i <= 6)
         {
-            short dy = rel_foward(player);
-            sq = sq_i + dy;
+            short dy = rel_foward(player), sq_y = sq_i + dy;
 
             // capture moves
             for (short dx = -1; dx <= 1; dx += 2)
             {
-                short sq_capture = sq + dx;
-                if (squares[sq_capture])
+                sq = sq_y + dx;
+                if (squares[sq])
                 {
-                    capture = *squares[sq_capture];
+                    capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_push(moves, quiet_begin, max_capture_shape, capture_shape, sq_capture);
+                        MVV_sort_push(moves, quiet_begin, max_capture_shape, capture_shape, sq);
                 }
             }
 
             // y-moves
-            if (!squares[sq])
+            if (!squares[sq_y])
             {
-                moves.emplace_back(sq);
+                moves.emplace_back(sq_y);
                 if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if pawn can step 2
                 {
-                    sq += dy;
-                    if (!squares[sq])
-                        moves.emplace_back(sq);
+                    sq_y += dy;
+                    if (!squares[sq_y])
+                        moves.emplace_back(sq_y);
                 }
             }
         }
@@ -602,14 +601,14 @@ bool is_attacked(PLAYER player, short sq)
     y = y_of(sq);
     if (1 <= y && y <= 6)
     {
-        sq_foe = sq + rel_foward(player);
+        short sq_y = sq + rel_foward(player);
         for (dx = -1; dx <= 1; dx += 2)
         {
-            short sq_capture = sq_foe + dx;
-            if (squares[sq_capture])
+            sq_foe = sq_y + dx;
+            if (squares[sq_foe])
             {
-                BoardEntry capture = *squares[sq_capture];
-                if (capture.player != player && capture.shape == PAWN)
+                BoardEntry entry = *squares[sq_foe];
+                if (entry.player != player && entry.shape == PAWN)
                     return 1;
             }
         }
@@ -707,9 +706,9 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
         {
             for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
             {
-                BoardEntry &board_entry = board[player][ind];
-                std::cout << '[' << char_of[player][board_entry.shape] << "]=";
-                std::cout << board_entry.sq << ", ";
+                BoardEntry &entry = board[player][ind];
+                std::cout << '[' << char_of[player][entry.shape] << "]=";
+                std::cout << entry.sq << ", ";
             }
         }
         std::cout << std::endl;
