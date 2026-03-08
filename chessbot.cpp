@@ -445,7 +445,7 @@ inline bool can_capture(PLAYER player, PLAYER capture_player, SHAPE capture_shap
     return capture_player != player && capture_shape != KING;
 }
 
-inline void MVV_sort_push(std::vector<short> &moves, short &quiet_begin, SHAPE (&capture_shape_LS)[2], SHAPE capture_shape, short sq)
+inline void MVV_sort_insert(std::vector<short> &moves, short &quiet_begin, SHAPE (&capture_shape_LS)[2], SHAPE capture_shape, short sq)
 {
     moves.emplace_back(sq);
 
@@ -495,7 +495,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                        MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
                 }
             }
 
@@ -526,7 +526,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                        MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
                 }
             }
         }
@@ -545,7 +545,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                        MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
                 }
             }
         }
@@ -562,7 +562,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                 capture = *squares[sq];
                 capture_shape = capture.shape;
                 if (can_capture(player, capture.player, capture_shape))
-                    MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                    MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
             }
         }
     }
@@ -579,7 +579,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                 capture = *squares[sq];
                 capture_shape = capture.shape;
                 if (can_capture(player, capture.player, capture_shape))
-                    MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
+                    MVV_sort_insert(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
             }
         }
     }
