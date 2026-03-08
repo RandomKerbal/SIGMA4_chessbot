@@ -445,17 +445,29 @@ inline bool can_capture(PLAYER player, PLAYER capture_player, SHAPE capture_shap
     return capture_player != player && capture_shape != KING;
 }
 
-inline void MVV_sort_push(std::vector<short> &moves, short &quiet_begin, SHAPE &max_capture_shape, SHAPE capture_shape, short sq)
+inline void MVV_sort_push(std::vector<short> &moves, short &quiet_begin, SHAPE (&capture_shape_LS)[2], SHAPE capture_shape, short sq)
 {
     moves.emplace_back(sq);
-    if (capture_shape > max_capture_shape)
-    {
-        max_capture_shape = capture_shape;
-        std::swap(moves.front(), moves.back());
-    }
 
-    std::swap(moves[quiet_begin], moves.back());
-    quiet_begin++;
+    if (capture_shape > PAWN) // pawn is unworthy
+    {
+        std::swap(moves.back(), moves[quiet_begin]);
+
+        // partial bubble sort
+        if (capture_shape > capture_shape_LS[0]) // largest
+        {
+            capture_shape_LS[0] = capture_shape;
+            std::swap(moves[quiet_begin], moves[1]);
+            std::swap(moves[1], moves.front());
+        }
+        else if (capture_shape <= capture_shape_LS[1]) // smallest
+            capture_shape_LS[1] = capture_shape;
+
+        else // somewhere middle
+            std::swap(moves[quiet_begin], moves[quiet_begin-1]);
+
+        quiet_begin++;
+    }
 }
 
 std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
@@ -463,7 +475,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
     std::vector<short> moves;
     moves.reserve(27);
     BoardEntry capture;
-    SHAPE capture_shape = PAWN, max_capture_shape = PAWN;
+    SHAPE capture_shape = PAWN, capture_shape_LS[2] = {PAWN, KING}; // LS = Largest Smallest
     short sq = 0, quiet_begin = 0;
     
     // MVV: start with capturing most worthy shapes, then quiet moves.
@@ -483,7 +495,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_push(moves, quiet_begin, max_capture_shape, capture_shape, sq);
+                        MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
                 }
             }
 
@@ -514,7 +526,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_push(moves, quiet_begin, max_capture_shape, capture_shape, sq);
+                        MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
                 }
             }
         }
@@ -533,7 +545,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                     capture = *squares[sq];
                     capture_shape = capture.shape;
                     if (can_capture(player, capture.player, capture_shape))
-                        MVV_sort_push(moves, quiet_begin, max_capture_shape, capture_shape, sq);
+                        MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
                 }
             }
         }
@@ -550,7 +562,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                 capture = *squares[sq];
                 capture_shape = capture.shape;
                 if (can_capture(player, capture.player, capture_shape))
-                    MVV_sort_push(moves, quiet_begin, max_capture_shape, capture_shape, sq);
+                    MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
             }
         }
     }
@@ -567,7 +579,7 @@ std::vector<short> gen_moves(PLAYER player, SHAPE shape, short sq_i)
                 capture = *squares[sq];
                 capture_shape = capture.shape;
                 if (can_capture(player, capture.player, capture_shape))
-                    MVV_sort_push(moves, quiet_begin, max_capture_shape, capture_shape, sq);
+                    MVV_sort_push(moves, quiet_begin, capture_shape_LS, capture_shape, sq);
             }
         }
     }
