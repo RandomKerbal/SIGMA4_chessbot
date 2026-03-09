@@ -819,8 +819,8 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
     if (depth >= MAX_DEPTH)
         return approx(player);
 
-    short score = 0, approx_score = 0, child_score = 0, sq_i = 0;
-    bool has_move = false;
+    short score = 0, best_score = (player ? SHRT_MIN : SHRT_MAX), sq_i = 0;
+    bool is_stale = true;
     SHAPE shape;
     BoardEntry *capture;
 
@@ -836,21 +836,30 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
 
                 if (!is_repeat3(depth) && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
-                    has_move = true;
+                    is_stale = false;
                     m_table[depth] = hash;
-                    child_score = minimax(PLAYER(!player), depth+1, alpha, beta);
+                    score = minimax(PLAYER(!player), depth+1, alpha, beta);
                     
-                    if (player && child_score > alpha)
-                        alpha = child_score;
-                    else if (!player && child_score < beta)
-                        beta = child_score;
+                    if (player)
+                    {
+                        if (score > best_score)
+                            best_score = score;
+                        if (score > alpha)
+                            alpha = score;
+                    }
+                    else
+                    {
+                        if (score < best_score)
+                            best_score = score;
+                        if (score < beta)
+                            beta = score;
+                    }
                     if (beta <= alpha)
                     {
                         move(player, shape, sq_f, sq_i, capture); // undo
-                        score = (player) ? alpha : beta;
                         if (phase <= t_entry.phase) // if hash collision, keep the one closer to endgame
-                            t_entry = {hash, score, phase};
-                        return score;
+                            t_entry = {hash, best_score, phase};
+                        return best_score;
                     }
                 }
                 move(player, shape, sq_f, sq_i, capture); // undo
@@ -858,15 +867,12 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
         }
     }
 
-    if (has_move)
-        score = (player) ? alpha : beta;
+    if (is_stale && is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
+        best_score = (player) ? SHRT_MIN : SHRT_MAX;
 
-    else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
-        score = (player) ? SHRT_MIN : SHRT_MAX;
-    
     if (phase <= t_entry.phase)
-        t_entry = {hash, score, phase};
-    return score;
+        t_entry = {hash, best_score, phase};
+    return best_score;
 }
 
 /**
@@ -875,9 +881,9 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
  */
 short bot_move(PLAYER player)
 {
-    short child_score = 0, best_sq_i = 0, best_sq_f = 0, best_score = (player ? SHRT_MIN : SHRT_MAX), sq_i = 0;
+    short score = 0, best_sq_i = 0, best_sq_f = 0, best_score = (player ? SHRT_MIN : SHRT_MAX), sq_i = 0;
     SHAPE best_shape, shape;
-    bool has_move = false;
+    bool is_stale = true;
     BoardEntry *capture;
 
     for (short ind = 0; ind <= BEGIN[player][KING]; ind++)
@@ -893,24 +899,24 @@ short bot_move(PLAYER player)
                 
                 if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
-                    has_move = true;
+                    is_stale = false;
                     m_table[0] = hash;
-                    child_score = minimax(PLAYER(!player), 1, SHRT_MIN, SHRT_MAX);
+                    score = minimax(PLAYER(!player), 1, SHRT_MIN, SHRT_MAX);
                 
-                    std::cout << "{" << sq_f << ", " << child_score << "}, ";
-                    if (player && child_score > best_score)
+                    std::cout << "{" << sq_f << ", " << score << "}, ";
+                    if (player && score > best_score)
                     {
                         best_shape = shape;
                         best_sq_i = sq_i;
                         best_sq_f = sq_f;
-                        best_score = child_score;
+                        best_score = score;
                     }
-                    else if (!player && child_score < best_score)
+                    else if (!player && score < best_score)
                     {
                         best_shape = shape;
                         best_sq_i = sq_i;
                         best_sq_f = sq_f;
-                        best_score = child_score;
+                        best_score = score;
                     }
                 }
                 move(player, shape, sq_f, sq_i, capture); // undo
@@ -918,15 +924,15 @@ short bot_move(PLAYER player)
             std::cout << std::endl;
         }
     }
-    if (has_move)
+    if (!is_stale)
     {
         std::cout << "Chosen move: " << best_sq_i << " to " << best_sq_f << std::endl;
         move(player, best_shape, best_sq_i, best_sq_f);
         return 0;
     }
-    else if (!has_move && is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
+    else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
         return 1;
-    
+
     else
         return 2;
 }
