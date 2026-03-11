@@ -8,7 +8,9 @@
 
 std::mt19937_64 rng(0);
 
-const short MAX_DEPTH = 7;
+const short MAX_DEPTH = 8;
+const short NM_INC = 3 + 1; // null move reduction + next depth
+const short MAX_NM_DEPTH = MAX_DEPTH - NM_INC;
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -16,6 +18,10 @@ enum PLAYER: short {
     MINER = BLACK, MAXER = WHITE,
     BOT = BLACK, HUMAN = WHITE,
 };
+inline PLAYER operator!(PLAYER player)
+{
+    return PLAYER(player^1);
+}
 enum SHAPE: short {
     PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5,
     MAX_SHAPE = 6
@@ -439,6 +445,11 @@ inline BoardEntry *move(PLAYER player, SHAPE shape, short sq_i, short sq_f, Boar
     return del;
 }
 
+inline void null_move()
+{
+    hash ^= ZBLACK;
+}
+
 /**
  * @return whether the given entry has the foe of the given player && not king.
  */
@@ -447,7 +458,7 @@ inline bool can_capture(PLAYER player, PLAYER capture_player, SHAPE capture_shap
     return capture_player != player && capture_shape != KING;
 }
 
-inline void MVVsort_insert(short (&moves)[27], short &moves_end, std::vector<short> (&MVV)[4], SHAPE shape, short sq)
+inline void MVVsort_insert(short *moves, short &moves_end, std::vector<short> *MVV, SHAPE shape, short sq)
 {
     if (shape == PAWN)
         moves[moves_end++] = sq;
@@ -456,7 +467,7 @@ inline void MVVsort_insert(short (&moves)[27], short &moves_end, std::vector<sho
         MVV[QUEEN-shape].emplace_back(sq);
 }
 
-void gen_moves(short (&moves)[27], short &moves_end, PLAYER player, SHAPE shape, short sq_i)
+void gen_moves(short *moves, short &moves_end, PLAYER player, SHAPE shape, short sq_i)
 {
     std::vector<short> MVV[4] = {
         {}, // QUEEN
@@ -492,7 +503,7 @@ void gen_moves(short (&moves)[27], short &moves_end, PLAYER player, SHAPE shape,
             if (!squares[sq_y])
             {
                 moves[moves_end++] = sq_y;
-                if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if pawn can step 2
+                if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if can step 2
                 {
                     sq_y += dy;
                     if (!squares[sq_y])
@@ -782,7 +793,7 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
     std::cout << TAB << "+-------------YOU-------------+" << std::endl;
 }
 
-inline short approx()
+inline short static_eval()
 {
     short score_opening = worth_opening[MAXER] - worth_opening[MINER],
           score_endgame = worth_endgame[MAXER] - worth_endgame[MINER];
@@ -801,27 +812,49 @@ inline bool is_repeat3(short depth)
 }
 
 /**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Prunning + Zobrist Hashing Transposition Table + MVV LVA + Threefold Repetition Check
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Threefold Repetition Check
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
- *      n ∈ (SHRT_MIN, SHRT_MAX) if over MAX_DEPTH.
+ *      n ∈ (SHRT_MIN, 0) U (0, SHRT_MAX) if over MAX_DEPTH.
  *      n = SHRT_MAX if check/stalemated by MAXER.
  *      n = SHRT_MIN if check/stalemated by MINER.
  */
-short minimax(PLAYER player, short depth, short alpha, short beta)
+short eval(PLAYER player, short depth, short alpha, short beta)
 {
     TtableEntry &t_entry = t_table[hash % TABLE_SZ];
     if (t_entry.hash == hash)
         return t_entry.score;
 
-    if (depth >= MAX_DEPTH)
-        return approx();
+    if (depth == MAX_DEPTH)
+        return static_eval();
 
-    short score = 0, best_score = (player == MAXER) ? SHRT_MIN : SHRT_MAX, sq_i = 0, sq_f = 0, moves[27] = {0}, moves_end = 0;
+    // Null-Move (NM) Pruning
+    if (depth <= MAX_NM_DEPTH && phase > 0) // no NM Pruning if side to move has only king and pawns
+    {
+        short NM_score = 0;
+        null_move();
+        if (player == MAXER)
+        {
+            NM_score = eval(!player, depth + NM_INC, alpha, alpha + 1);
+            null_move(); // undo
+            if (NM_score >= beta)
+                return NM_score;
+        }
+        else
+        {
+            NM_score = eval(!player, depth + NM_INC, beta - 1, beta);
+            null_move(); // undo
+            if (NM_score <= alpha)
+                return NM_score;
+        }
+    }
+
+    short score = 0, best_score = (player == MAXER) ? SHRT_MIN : SHRT_MAX,
+          sq_i = 0, sq_f = 0, moves[27] = {0}, moves_end = 0;
     SHAPE shape;
     BoardEntry *capture;
 
-    for (short i = 0; i <= BEGIN[player][KING]; i++) // LVA: start by moving most worthless shapes
+    for (short i = 0; i <= BEGIN[player][KING]; i++) // LVA: first move less worthy shapes
     {
         sq_i = board[player][i].sq;
         if (sq_i >= 0) // if not captured
@@ -837,8 +870,8 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
                 if (!is_repeat3(depth) && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
                     m_table[depth] = hash;
-                    score = minimax(PLAYER(!player), depth+1, alpha, beta);
-                    
+                    score = eval(!player, depth+1, alpha, beta);
+                    move(player, shape, sq_f, sq_i, capture); // undo
                     if (player == MAXER)
                     {
                         if (score > best_score)
@@ -853,15 +886,15 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
                         if (score < beta)
                             beta = score;
                     }
-                    if (beta <= alpha)
+                    if (alpha >= beta)
                     {
-                        move(player, shape, sq_f, sq_i, capture); // undo
                         if (phase <= t_entry.phase) // if hash collision, keep the one closer to endgame
                             t_entry = {hash, best_score, phase};
                         return best_score;
                     }
                 }
-                move(player, shape, sq_f, sq_i, capture); // undo
+                else
+                    move(player, shape, sq_f, sq_i, capture); // undo
             }
         }
     }
@@ -872,12 +905,14 @@ short minimax(PLAYER player, short depth, short alpha, short beta)
 }
 
 /**
- * Behave the same as minimax(), except with recording the best move and without recording to t_table and AlphaBeta Prunning.
+ * Behave the same as eval(), except with recording the best move and without recording to t_table and AlphaBeta Pruning.
  * @return 0: bot has move(s). 1: bot is checkmated. 2: bot is stalemated.
  */
 short bot_move(PLAYER player)
 {
-    short score = 0, best_sq_i = 0, best_sq_f = 0, best_score = (player == MAXER) ? SHRT_MIN : SHRT_MAX, sq_i = 0, sq_f = 0, moves[27] = {0}, moves_end = 0;
+    short score = 0, best_sq_i = 0, best_sq_f = 0,
+          best_score = (player == MAXER) ? SHRT_MIN : SHRT_MAX,
+          sq_i = 0, sq_f = 0, moves[27] = {0}, moves_end = 0;
     SHAPE best_shape, shape;
     BoardEntry *capture;
 
@@ -898,7 +933,7 @@ short bot_move(PLAYER player)
                 if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
                 {
                     m_table[0] = hash;
-                    score = minimax(PLAYER(!player), 1, SHRT_MIN, SHRT_MAX);
+                    score = eval(!player, 1, SHRT_MIN, SHRT_MAX);
                 
                     std::cout << "{" << sq_f << ", " << score << "}, ";
                     if (player == MAXER && score > best_score)
@@ -921,7 +956,7 @@ short bot_move(PLAYER player)
             std::cout << std::endl;
         }
     }
-    if (best_score != SHRT_MIN && best_score != SHRT_MAX)
+    if (score)
     {
         std::cout << "Chosen move: " << best_sq_i << " to " << best_sq_f << std::endl;
         move(player, best_shape, best_sq_i, best_sq_f);
@@ -1016,7 +1051,15 @@ void console_play()
             std::cin >> sq_i >> sq_f;
             invalid = validate(sq_i, sq_f);
             if (invalid)
-                std::cout << "Invalid move, broken rule #" << invalid << std::endl;
+            {
+                if (invalid == 7)
+                {
+                    std::cout << "You lost!" << std::endl;
+                    exit(0);
+                }
+                else
+                    std::cout << "Invalid move, broken rule #" << invalid << std::endl;
+            }
         }
         while (invalid);
         move(HUMAN, (*squares[sq_i]).shape, sq_i, sq_f);
@@ -1024,9 +1067,9 @@ void console_play()
 
         short outcome = bot_move(BOT);
         if (outcome == 1)
-            std::cout << "You won!\nPC: NOOO MY DIGNITY!" << std::endl;
+            std::cout << "You won!" << std::endl;
         else if (outcome == 2)
-            std::cout << "Ended in draw.\nPC: You\'ll never win ... not satisfied? Replay!" << std::endl;
+            std::cout << "Ended in draw." << std::endl;
         if (outcome)
             break;
         std::cout << std::endl;
