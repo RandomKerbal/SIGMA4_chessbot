@@ -628,7 +628,7 @@ bool is_attacked(PLAYER player, short sq)
             {
                 BoardEntry entry = *squares[sq_foe];
                 if (entry.player != player && entry.shape == PAWN)
-                    return 1;
+                    return true;
             }
         }
     }
@@ -642,7 +642,7 @@ bool is_attacked(PLAYER player, short sq)
             dx = abs(x_of(sq_foe) - x_of(sq));
             dy = abs(y_of(sq_foe) - y_of(sq));
             if ((dx == 1 && dy == 2) || (dx == 2 && dy == 1))
-                return 1;
+                return true;
         }
     }
 
@@ -655,7 +655,7 @@ bool is_attacked(PLAYER player, short sq)
             dx = abs(x_of(sq_foe) - x_of(sq));
             dy = abs(y_of(sq_foe) - y_of(sq));
             if (dx == dy && is_path_clear(sq, sq_foe, dx, dy))
-                return 1;
+                return true;
         }
     }
 
@@ -668,7 +668,7 @@ bool is_attacked(PLAYER player, short sq)
             dx = abs(x_of(sq_foe) - x_of(sq));
             dy = abs(y_of(sq_foe) - y_of(sq));
             if ((dx == 0 || dy == 0) && is_path_clear(sq, sq_foe, dx, dy))
-                return 1;
+                return true;
         }
     }
 
@@ -679,17 +679,17 @@ bool is_attacked(PLAYER player, short sq)
         dx = abs(x_of(sq_foe) - x_of(sq));
         dy = abs(y_of(sq_foe) - y_of(sq));
         if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq, sq_foe, dx, dy))
-            return 1;
+            return true;
     }
 
     // check for foe king
-    sq_foe = board[!player][BEGIN[!player][KING]].sq;
-    dx = abs(x_of(sq_foe) - x_of(sq));
-    dy = abs(y_of(sq_foe) - y_of(sq));
-    if (std::max(dx, dy) == 1)
-        return 1;
+    // sq_foe = board[!player][BEGIN[!player][KING]].sq;
+    // dx = abs(x_of(sq_foe) - x_of(sq));
+    // dy = abs(y_of(sq_foe) - y_of(sq));
+    // if (std::max(dx, dy) == 1)
+    //     return true;
 
-    return 0;
+    return false;
 }
 
 void out_board(bool has_t_table = false, bool has_hash = false, bool has_index = false, bool has_phase = false, bool has_worth = false, bool has_attack = false)
