@@ -294,19 +294,6 @@ const short R_VECTOR[4] = {
 };
 // no Q_VECTOR since it's a combination of B_VECTOR & R_VECTOR
 
-/**
- * char_of
- * └── 0,1: see enum PLAYER
- *     └── 0...5: see enum SHAPE
- * 
- * Converts entry from integer to character.
- * lowercase: black; uppercase: white 
- */
-const char char_of[MAX_PLAYER][MAX_SHAPE] = {
-    { 'p', 'n', 'b', 'r', 'q', 'k' },
-    { 'P', 'N', 'B', 'R', 'Q', 'K' },
-};
-
 inline short x_of(short sq)
 {
     return sq % WIDTH;
@@ -694,6 +681,10 @@ bool is_attacked(PLAYER player, short sq)
 
 void out_board(bool has_t_table = false, bool has_hash = false, bool has_index = false, bool has_phase = false, bool has_worth = false, bool has_attack = false)
 {
+    const char char_of[MAX_PLAYER][MAX_SHAPE] = {
+        { 'p', 'n', 'b', 'r', 'q', 'k' },
+        { 'P', 'N', 'B', 'R', 'Q', 'K' },
+    };
     const char TAB[4] = "   ";
     if (has_t_table)
     {
