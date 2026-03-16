@@ -894,7 +894,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
             if (child_score >= beta)
             {
                 hash_history[depth] = 0;
-                return child_score;
+                return beta;
             }
         }
         else
@@ -903,7 +903,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
             if (child_score <= alpha)
             {
                 hash_history[depth] = 0;
-                return child_score;
+                return alpha;
             }
         }
     }
@@ -1001,7 +1001,7 @@ short bot_move(PLAYER player)
             unmove(player, shape, sq_i, sq_f, sq_f_ptr);
     }
     std::cout << std::endl;
-    if (child_score)
+    if (score != SHRT_MIN && score != SHRT_MAX)
     {
         std::cout << "Chosen move: " << best_sq_i << " to " << best_sq_f << std::endl;
         hash = move(hash, player, best_shape, best_sq_i, best_sq_f);
