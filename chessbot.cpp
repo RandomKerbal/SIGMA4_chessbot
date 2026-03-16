@@ -11,7 +11,7 @@ const short MAX_DEPTH = 8;
 const short NM_R = 3;
 const short NM_DEPTH_INC = NM_R + 1;
 const short MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
-const short MAX_NUM_CHILD = 218*3; // must be multiple of 3
+const short MAX_NUM_CHILD = 54*3; // must be multiple of 3
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -445,7 +445,7 @@ inline void unmove(PLAYER player, SHAPE shape, short sq_i, short sq_f, BoardEntr
 }
 
 /**
- * @return whether the given victim (_V) is the foe of the given player && not king.
+ * @return whether the given victim (_V) is the enemy of the given player && not king.
  */
 inline bool can_capture(PLAYER player, PLAYER player_v, SHAPE shape_v)
 {
@@ -654,17 +654,17 @@ inline bool is_path_clear(short sq_i, short sq_f, short dx, short dy)
 }
 
 /**
- * @return whether the given square is currently attacked by the foe of the given player.
+ * @return whether the given square is currently attacked by the enemy of the given player.
  */
-bool is_attacked(PLAYER player, short sq)
+bool is_checked(PLAYER player)
 {
-    short i = 0, dx = 0, dy = 0, y = 0, sq_a = 0;
+    short i = 0, dx = 0, dy = 0, y = 0, sq_a = 0, sq_v = board[player][BEGIN[player][KING]].sq;
 
-    // check for foe pawns by being a pawn and check where I can capture
-    y = y_of(sq);
+    // check for enemy pawns by being a pawn and check where I can capture
+    y = y_of(sq_v);
     if (1 <= y && y <= 6)
     {
-        short sq_y = sq + rel_foward[player];
+        short sq_y = sq_v + rel_foward[player];
         BoardEntry attacker;
         for (dx = -1; dx <= 1; dx += 2)
         {
@@ -678,66 +678,61 @@ bool is_attacked(PLAYER player, short sq)
         }
     }
 
-    // check for foe knights by iterating over all foe knights
+    // check for enemy knights by iterating over all enemy knights
     for (i = BEGIN[!player][KNIGHT]; i < BEGIN[!player][BISHOP]; i++)
     {
         sq_a = board[!player][i].sq;
         if (sq_a >= 0) // if not captured
         {
-            dx = abs(x_of(sq_a) - x_of(sq));
-            dy = abs(y_of(sq_a) - y_of(sq));
+            dx = abs(x_of(sq_a) - x_of(sq_v));
+            dy = abs(y_of(sq_a) - y_of(sq_v));
             if ((dx == 1 && dy == 2) || (dx == 2 && dy == 1))
                 return true;
         }
     }
 
-    // check for foe bishops
+    // check for enemy bishops
     for (i = BEGIN[!player][BISHOP]; i < BEGIN[!player][ROOK]; i++)
     {
         sq_a = board[!player][i].sq;
         if (sq_a >= 0)
         {
-            dx = abs(x_of(sq_a) - x_of(sq));
-            dy = abs(y_of(sq_a) - y_of(sq));
-            if (dx == dy && is_path_clear(sq, sq_a, dx, dy))
+            dx = abs(x_of(sq_a) - x_of(sq_v));
+            dy = abs(y_of(sq_a) - y_of(sq_v));
+            if (dx == dy && is_path_clear(sq_v, sq_a, dx, dy))
                 return true;
         }
     }
 
-    // check for foe rooks
+    // check for enemy rooks
     for (i = BEGIN[!player][ROOK]; i < BEGIN[!player][QUEEN]; i++)
     {
         sq_a = board[!player][i].sq;
         if (sq_a >= 0)
         {
-            dx = abs(x_of(sq_a) - x_of(sq));
-            dy = abs(y_of(sq_a) - y_of(sq));
-            if ((dx == 0 || dy == 0) && is_path_clear(sq, sq_a, dx, dy))
+            dx = abs(x_of(sq_a) - x_of(sq_v));
+            dy = abs(y_of(sq_a) - y_of(sq_v));
+            if ((dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
                 return true;
         }
     }
 
-    // check for foe queen
+    // check for enemy queen
     sq_a = board[!player][BEGIN[!player][QUEEN]].sq;
     if (sq_a >= 0)
     {
-        dx = abs(x_of(sq_a) - x_of(sq));
-        dy = abs(y_of(sq_a) - y_of(sq));
-        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq, sq_a, dx, dy))
+        dx = abs(x_of(sq_a) - x_of(sq_v));
+        dy = abs(y_of(sq_a) - y_of(sq_v));
+        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
             return true;
     }
 
-    // check for foe king
-    // sq_a = board[!player][BEGIN[!player][KING]].sq;
-    // dx = abs(x_of(sq_a) - x_of(sq));
-    // dy = abs(y_of(sq_a) - y_of(sq));
-    // if (std::max(dx, dy) == 1)
-    //     return true;
+    // no check for enemy king since king cannot attack king
 
     return false;
 }
 
-void out_board(bool has_t_table = false, bool has_hash = false, bool has_index = false, bool has_phase = false, bool has_worth = false, bool has_attack = false)
+void out_board(bool has_t_table = false, bool has_hash = false, bool has_index = false, bool has_phase = false, bool has_worth = false)
 {
     const char char_of[MAX_PLAYER][MAX_SHAPE] = {
         { 'p', 'n', 'b', 'r', 'q', 'k' },
@@ -796,23 +791,6 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
         for (short player = BLACK; player <= WHITE; player++)
         {
             std::cout << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << worth_endgame[player] << std::endl;
-        }
-    }
-
-
-    if (has_attack)
-    {
-        std::cout << "Tile(s) attacked by:" << std::endl;
-        for (short player = BLACK; player <= WHITE; player++)
-        {
-            std::cout << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=";
-            for (short sq = 0; sq < AREA; sq++)
-            {
-                BoardEntry *ptr = squares[sq];
-                if (ptr && (*ptr).player != player && is_attacked((*ptr).player, (*ptr).sq))
-                    std::cout << sq << ", ";
-            }
-            std::cout << std::endl;
         }
     }
 
@@ -886,7 +864,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
 
     // Null-Move (NM) Pruning
     short child_score = 0;
-    if (!is_NM_eval && !is_PV_node && depth <= MAX_NM_DEPTH && phase > 0 && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
+    if (!is_NM_eval && !is_PV_node && depth <= MAX_NM_DEPTH && phase > 0 && !is_checked(player))
     {
         if (player == MAXER)
         {
@@ -919,7 +897,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
         sq_f_ptr = squares[sq_f];
         child_hash = move(hash, player, shape, sq_i, sq_f);
 
-        if (!is_repeat(child_hash, depth) && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
+        if (!is_repeat(child_hash, depth) && !is_checked(player))
         {
             child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, is_PV_node);
             unmove(player, shape, sq_i, sq_f, sq_f_ptr);
@@ -975,7 +953,7 @@ short bot_move(PLAYER player)
         sq_f_ptr = squares[sq_f];
         child_hash = move(hash, player, shape, sq_i, sq_f);
         
-        if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
+        if (!is_checked(player))
         {
             child_score = eval(child_hash, !player, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node);
             unmove(player, shape, sq_i, sq_f, sq_f_ptr);
@@ -1007,7 +985,7 @@ short bot_move(PLAYER player)
         hash = move(hash, player, best_shape, best_sq_i, best_sq_f);
         return 0;
     }
-    else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
+    else if (is_checked(player)) // checkmated
         return 1;
 
     else
@@ -1076,7 +1054,7 @@ short validate(short sq_i, short sq_f)
     
     // check checked
     move(hash, player, shape, sq_i, sq_f);
-    if (is_attacked(player, board[player][BEGIN[player][KING]].sq))
+    if (is_checked(player))
     {
         unmove(player, shape, sq_i, sq_f, sq_f_ptr);
         return 7;
@@ -1092,7 +1070,7 @@ void console_play()
     short sq_i = 0, sq_f = 0, invalid = 0;
     while (true)
     {
-        out_board(true, true, true, true, true, true);
+        out_board(true, true, true, true, true);
         do
         {
             std::cout << "Initial and final entry (intitial square, final square): ";
