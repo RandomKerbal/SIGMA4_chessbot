@@ -450,12 +450,12 @@ inline bool can_capture(PLAYER player, PLAYER V_player, SHAPE V_shape)
     return V_player != player && V_shape != KING;
 }
 
-class MvvLvaMoveGenerator
+class MVVLVAMoveGenerator
 {
     public:
-        MvvLvaMoveGenerator(PLAYER player)
+        MVVLVAMoveGenerator(PLAYER player)
         {
-            gen_MvvLva_moves(player);
+            gen_MVVLVA_moves(player);
         }
 
         /**
@@ -495,11 +495,11 @@ class MvvLvaMoveGenerator
          * quiet_moves[] is the last array in moves[] (KING x PAWN).
          */
         short moves[KING][MAX_SHAPE][MAX_NUM_CHILD*3] = {{{}}}, moves_sz[KING][MAX_SHAPE] = {{}}, *quiet_moves = moves[QUEEN][KING], &quiet_moves_sz = moves_sz[QUEEN][KING];
-        short ii = 0, iii = 0, iv = 0;
+        short sq_i = 0, sq_f = 0, ii = 0, iii = 0, iv = 0;
         SHAPE A_shape, V_shape;
         BoardEntry victim;
 
-        inline void MvvLva_insert(short sq_i, short sq_f)
+        inline void MVVLVA_insert()
         {
             short *VA_moves = moves[QUEEN-V_shape][A_shape];
             short &VA_sz = moves_sz[QUEEN-V_shape][A_shape];
@@ -508,18 +508,18 @@ class MvvLvaMoveGenerator
             VA_moves[VA_sz++] = sq_f;
         }
 
-        inline void quiet_insert(short sq_i, short sq_f)
+        inline void quiet_insert()
         {
             quiet_moves[quiet_moves_sz++] = A_shape;
             quiet_moves[quiet_moves_sz++] = sq_i;
             quiet_moves[quiet_moves_sz++] = sq_f;
         }
 
-        void gen_MvvLva_moves(PLAYER player)
+        void gen_MVVLVA_moves(PLAYER player)
         {
             for (short i = 0; i <= BEGIN[player][KING]; i++)
             {
-                short sq_i = board[player][i].sq, sq_f = 0;
+                sq_i = board[player][i].sq;
                 if (sq_i >= 0) // if not captured
                 {
                     A_shape = board[player][i].shape;
@@ -539,19 +539,22 @@ class MvvLvaMoveGenerator
                                     victim = *squares[sq_f];
                                     V_shape = victim.shape;
                                     if (can_capture(player, victim.player, V_shape))
-                                        MvvLva_insert(sq_i, sq_f);
+                                        MVVLVA_insert();
                                 }
                             }
 
                             // y-moves
                             if (!squares[sq_y])
                             {
-                                quiet_insert(sq_i, sq_y);
+                                quiet_insert();
                                 if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if can step 2
                                 {
                                     sq_y += dy;
                                     if (!squares[sq_y])
-                                        quiet_insert(sq_i, sq_y);
+                                    {
+                                        sq_f = sq_y;
+                                        quiet_insert();
+                                    }
                                 }
                             }
                         }
@@ -564,13 +567,13 @@ class MvvLvaMoveGenerator
                             if (is_play_area(sq_f))
                             {
                                 if (!squares[sq_f])
-                                    quiet_insert(sq_i, sq_f);
+                                    quiet_insert();
                                 else
                                 {
                                     victim = *squares[sq_f];
                                     V_shape = victim.shape;
                                     if (can_capture(player, victim.player, V_shape))
-                                        MvvLva_insert(sq_i, sq_f);
+                                        MVVLVA_insert();
                                 }
                             }
                         }
@@ -583,13 +586,13 @@ class MvvLvaMoveGenerator
                             if (is_play_area(sq_f))
                             {
                                 if (!squares[sq_f])
-                                    quiet_insert(sq_i, sq_f);
+                                    quiet_insert();
                                 else
                                 {
                                     victim = *squares[sq_f];
                                     V_shape = victim.shape;
                                     if (can_capture(player, victim.player, V_shape))
-                                        MvvLva_insert(sq_i, sq_f);
+                                        MVVLVA_insert();
                                 }
                             }
                         }
@@ -601,14 +604,14 @@ class MvvLvaMoveGenerator
                             for (short v: B_VECTOR)
                             {
                                 for (sq_f = sq_i + v; is_play_area(sq_f) && !squares[sq_f]; sq_f += v)
-                                    quiet_insert(sq_i, sq_f);
+                                    quiet_insert();
                                 
                                 if (is_play_area(sq_f))
                                 {
                                     victim = *squares[sq_f];
                                     V_shape = victim.shape;
                                     if (can_capture(player, victim.player, V_shape))
-                                        MvvLva_insert(sq_i, sq_f);
+                                        MVVLVA_insert();
                                 }
                             }
                         }
@@ -618,14 +621,14 @@ class MvvLvaMoveGenerator
                             {
                                 // travel until on top of a shape
                                 for (sq_f = sq_i + v; is_play_area(sq_f) && !squares[sq_f]; sq_f += v)
-                                    quiet_insert(sq_i, sq_f);
+                                    quiet_insert();
 
                                 if (is_play_area(sq_f))
                                 {
                                     victim = *squares[sq_f];
                                     V_shape = victim.shape;
                                     if (can_capture(player, victim.player, V_shape))
-                                        MvvLva_insert(sq_i, sq_f);
+                                        MVVLVA_insert();
                                 }
                             }
                         }
@@ -910,7 +913,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
     SHAPE shape;
     BoardEntry *sq_f_ptr;
 
-    MvvLvaMoveGenerator Moves(player);
+    MVVLVAMoveGenerator Moves(player);
     while (Moves.next(shape, sq_i, sq_f))
     {
         sq_f_ptr = squares[sq_f];
@@ -963,7 +966,7 @@ short bot_move(PLAYER player)
 
     hash_history[0] = hash;
 
-    MvvLvaMoveGenerator Moves(player);
+    MVVLVAMoveGenerator Moves(player);
     while (Moves.next(shape, sq_i, sq_f))
     {
         std::cout << "Possible {move, score} from " << sq_i << ": ";
