@@ -1,7 +1,8 @@
+#include <algorithm>
 #include <climits>
-#include <random>
 
 // remove in VEXIQ
+#include <random>
 #include <iostream>
 #include <iomanip>
 
@@ -41,7 +42,10 @@ const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
 struct BoardEntry {
     PLAYER player;
     SHAPE shape;
-    short sq = -1;
+    short sq;
+
+    BoardEntry(PLAYER player = BLACK, SHAPE shape = PAWN, short sq = -1) : player(player), shape(shape), sq(sq)
+    {}
 };
 /**
  * board
@@ -108,9 +112,12 @@ unsigned long long hash = 0;
 
 const unsigned int TABLE_SZ = 1 << 22; // must be power of 2
 struct TtableEntry {
-    unsigned long long hash = 0;
-    short score = 0;
-    short phase = SHRT_MAX;
+    unsigned long long hash;
+    short score;
+    short phase;
+
+    TtableEntry () : hash(0), score(0), phase(SHRT_MAX)
+    {}
 };
 TtableEntry t_table[TABLE_SZ]; // Transposition Table
 unsigned long long hash_history[MAX_DEPTH] = {0};
@@ -665,13 +672,12 @@ bool is_checked(PLAYER player)
     if (1 <= y && y <= 6)
     {
         short sq_y = sq_v + rel_foward[player];
-        BoardEntry attacker;
         for (dx = -1; dx <= 1; dx += 2)
         {
             sq_a = sq_y + dx;
             if (sq_a >= 0 && squares[sq_a])
             {
-                attacker = *squares[sq_a];
+                BoardEntry &attacker = *squares[sq_a];
                 if (attacker.player != player && attacker.shape == PAWN)
                     return true;
             }
@@ -743,7 +749,7 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
     {
         std::cout << "Transposition Table:" << std::endl;
         short i = 0;
-        for (TtableEntry t_entry : t_table)
+        for (TtableEntry &t_entry : t_table)
         {
             if (i < 10)
             {
