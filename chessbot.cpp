@@ -115,7 +115,7 @@ struct TtableEntry {
 TtableEntry t_table[TABLE_SZ]; // Transposition Table
 unsigned long long hash_history[MAX_DEPTH] = {0};
 
-float PHASE_OPENING = 0; // sum of SHAPE_PHASE of all initial pieces
+float MAX_PHASE = 0; // sum of SHAPE_PHASE of all initial pieces
 short phase = 0; // sum of SHAPE_PHASE of all current pieces
 short worth_opening[MAX_PLAYER] = {0, 0};
 short worth_endgame[MAX_PLAYER] = {0, 0};
@@ -312,7 +312,7 @@ short rel_foward[MAX_PLAYER] = { WIDTH, -WIDTH };
 
 inline bool is_play_area(short sq)
 {
-    return x_of(sq) < 8 && unsigned(sq) < AREA; // if x < 0, it becomes a huge unsigned number > AREA.
+    return unsigned(sq) < AREA && x_of(sq) < 8; // if x < 0, it becomes a huge unsigned number > AREA.
 }
 
 void init_all()
@@ -331,7 +331,7 @@ void init_all()
 
     for (short player = BLACK; player <= WHITE; player++)
     {
-        // BEGIN, squares, phase, worth_opening, worth_endgame, PHASE_OPENING
+        // BEGIN, squares, phase, worth_opening, worth_endgame, MAX_PHASE
         SHAPE prev_shape = PAWN, shape;
         short i = 0;
         for (BoardEntry &entry : board[player])
@@ -351,7 +351,7 @@ void init_all()
                 i++;
             }
         }
-        PHASE_OPENING = phase;
+        MAX_PHASE = phase;
 
         // Ztable
         for (short shape = PAWN; shape < MAX_SHAPE; shape++)
@@ -544,17 +544,15 @@ class MVVLVAMoveGenerator
                             }
 
                             // y-moves
-                            if (!squares[sq_y])
+                            sq_f = sq_y;
+                            if (!squares[sq_f])
                             {
                                 quiet_insert();
-                                if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // if can step 2
+                                if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // can step 2
                                 {
-                                    sq_y += dy;
-                                    if (!squares[sq_y])
-                                    {
-                                        sq_f = sq_y;
+                                    sq_f += dy;
+                                    if (!squares[sq_f])
                                         quiet_insert();
-                                    }
                                 }
                             }
                         }
@@ -783,7 +781,7 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
     }
 
     if (has_phase)
-        std::cout << "Distance from endgame:" << std::endl << TAB << phase << '/' << PHASE_OPENING << std::endl;
+        std::cout << "Distance from endgame:" << std::endl << TAB << phase << '/' << MAX_PHASE << std::endl;
 
     if (has_worth)
     {
@@ -844,7 +842,7 @@ inline short static_eval()
     short score_opening = worth_opening[MAXER] - worth_opening[MINER],
           score_endgame = worth_endgame[MAXER] - worth_endgame[MINER];
 
-    return (score_endgame - (phase/PHASE_OPENING)*(score_endgame - score_opening)); // linear interpolation
+    return (score_endgame - (phase/MAX_PHASE)*(score_endgame - score_opening)); // linear interpolation
 }
 
 inline bool is_repeat(unsigned long long hash, short depth)
@@ -886,27 +884,27 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
 
     // Null-Move (NM) Pruning
     short child_score = 0;
-    if (!is_NM_eval && !is_PV_node && depth <= MAX_NM_DEPTH && phase > 0 && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
-    {
-        if (player == MAXER)
-        {
-            child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, beta-1, beta, true, is_PV_node);
-            if (child_score >= beta)
-            {
-                hash_history[depth] = 0;
-                return child_score;
-            }
-        }
-        else
-        {
-            child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, is_PV_node);
-            if (child_score <= alpha)
-            {
-                hash_history[depth] = 0;
-                return child_score;
-            }
-        }
-    }
+    // if (!is_NM_eval && !is_PV_node && depth <= MAX_NM_DEPTH && phase > 0 && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
+    // {
+    //     if (player == MAXER)
+    //     {
+    //         child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, beta-1, beta, true, is_PV_node);
+    //         if (child_score >= beta)
+    //         {
+    //             hash_history[depth] = 0;
+    //             return child_score;
+    //         }
+    //     }
+    //     else
+    //     {
+    //         child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, is_PV_node);
+    //         if (child_score <= alpha)
+    //         {
+    //             hash_history[depth] = 0;
+    //             return child_score;
+    //         }
+    //     }
+    // }
 
     short score = (player == MAXER) ? SHRT_MIN : SHRT_MAX, sq_i = 0, sq_f = 0;
     unsigned long long child_hash = 0;
@@ -917,12 +915,13 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
     while (Moves.next(shape, sq_i, sq_f))
     {
         sq_f_ptr = squares[sq_f];
-        child_hash = move(child_hash, player, shape, sq_i, sq_f);
+        child_hash = move(hash, player, shape, sq_i, sq_f);
 
         if (!is_repeat(child_hash, depth) && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
         {
-            child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, (is_PV_node && !child_score));
+            child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, is_PV_node);
             unmove(player, shape, sq_i, sq_f, sq_f_ptr);
+            is_PV_node = false;
             
             if (player == MAXER)
             {
@@ -959,6 +958,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
  */
 short bot_move(PLAYER player)
 {
+    bool is_PV_node = true;
     short child_score = 0, best_sq_i = 0, best_sq_f = 0, score = (player == MAXER) ? SHRT_MIN : SHRT_MAX, sq_i = 0, sq_f = 0;
     unsigned long long child_hash = 0;
     SHAPE best_shape, shape;
@@ -966,19 +966,20 @@ short bot_move(PLAYER player)
 
     hash_history[0] = hash;
 
+    std::cout << "Possible {sq_i, sq_f, score}:" << std::endl;
     MVVLVAMoveGenerator Moves(player);
     while (Moves.next(shape, sq_i, sq_f))
     {
-        std::cout << "Possible {move, score} from " << sq_i << ": ";
         sq_f_ptr = squares[sq_f];
-        child_hash = move(child_hash, player, shape, sq_i, sq_f);
+        child_hash = move(hash, player, shape, sq_i, sq_f);
         
         if (!is_attacked(player, board[player][BEGIN[player][KING]].sq))
         {
-            child_score = eval(child_hash, !player, 1, SHRT_MIN, SHRT_MAX, false, !child_score);
+            child_score = eval(child_hash, !player, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node);
             unmove(player, shape, sq_i, sq_f, sq_f_ptr);
+            is_PV_node = false;
+            std::cout << "{" << sq_i << ", " << sq_f << ", " << child_score << "}, " << std::endl;
         
-            std::cout << "{" << sq_f << ", " << child_score << "}, ";
             if (player == MAXER && child_score > score)
             {
                 best_shape = shape;
@@ -1001,7 +1002,7 @@ short bot_move(PLAYER player)
     if (child_score)
     {
         std::cout << "Chosen move: " << best_sq_i << " to " << best_sq_f << std::endl;
-        move(hash, player, shape, sq_i, sq_f);
+        hash = move(hash, player, best_shape, best_sq_i, best_sq_f);
         return 0;
     }
     else if (is_attacked(player, board[player][BEGIN[player][KING]].sq)) // checkmated
