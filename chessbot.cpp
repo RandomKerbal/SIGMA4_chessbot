@@ -7,7 +7,7 @@
 
 std::mt19937_64 rng(0);
 
-const short MAX_DEPTH = 9;
+const short MAX_DEPTH = 8;
 const short NM_R = 3;
 const short NM_DEPTH_INC = NM_R + 1;
 const short MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
@@ -412,7 +412,9 @@ inline unsigned long long move(unsigned long long hash, PLAYER player, SHAPE sha
 }
 
 /**
- * IMPORTANT: Doesn't undo hash!
+ * IMPORTANT:
+ * 1. Doesn't undo hash.
+ * 2. Same sq_i & sq_f as doing move.
  */
 inline void unmove(PLAYER player, SHAPE shape, short sq_i, short sq_f, BoardEntry *add_ptr)
 {
@@ -424,8 +426,8 @@ inline void unmove(PLAYER player, SHAPE shape, short sq_i, short sq_f, BoardEntr
         PLAYER add_player = add_entry.player;
         SHAPE add_shape = add_entry.shape;
         phase += SHAPE_PHASE[add_shape];
-        worth_opening[add_player] += WORTH_OPENING[add_player][add_shape][sq_i];
-        worth_endgame[add_player] += WORTH_ENDGAME[add_player][add_shape][sq_i];
+        worth_opening[add_player] += WORTH_OPENING[add_player][add_shape][sq_f];
+        worth_endgame[add_player] += WORTH_ENDGAME[add_player][add_shape][sq_f];
     }
 
     BoardEntry * &sq_f_ptr = squares[sq_f];
