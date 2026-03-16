@@ -463,24 +463,24 @@ class MVVLVAMoveGenerator
          */
         bool next(SHAPE &shape, short &sq_i, short &sq_f)
         {
-            while (ii < KING)
+            while (i_v < KING)
             {
-                while (iii < MAX_SHAPE)
+                while (i_a < MAX_SHAPE)
                 {
-                    short *arr = moves[ii][iii];
+                    short *arr = moves[i_v][i_a];
 
-                    if (iv + 2 < moves_sz[ii][iii])
+                    if (ii + 2 < moves_sz[i_v][i_a])
                     {
-                        shape = SHAPE(arr[iv++]);
-                        sq_i = arr[iv++];
-                        sq_f = arr[iv++];
+                        shape = SHAPE(arr[ii++]);
+                        sq_i = arr[ii++];
+                        sq_f = arr[ii++];
                         return true;
                     }
-                    iv = 0;
-                    iii++;
+                    ii = 0;
+                    i_a++;
                 }
-                iii = 0;
-                ii++;
+                i_a = 0;
+                i_v++;
             }
             return false;
         };
@@ -495,7 +495,7 @@ class MVVLVAMoveGenerator
          * quiet_moves[] is the last array in moves[] (KING x PAWN).
          */
         short moves[KING][MAX_SHAPE][MAX_NUM_CHILD] = {{{}}}, moves_sz[KING][MAX_SHAPE] = {{}}, *quiet_moves = moves[QUEEN][KING], &quiet_moves_sz = moves_sz[QUEEN][KING];
-        short sq_i = 0, sq_f = 0, ii = 0, iii = 0, iv = 0;
+        short sq_i = 0, sq_f = 0, i_v = 0, i_a = 0, ii = 0;
         SHAPE shape_a, shape_v;
         BoardEntry victim;
 
