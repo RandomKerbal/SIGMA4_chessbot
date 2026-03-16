@@ -7,11 +7,11 @@
 
 std::mt19937_64 rng(0);
 
-const short MAX_DEPTH = 8;
+const short MAX_DEPTH = 9;
 const short NM_R = 3;
 const short NM_DEPTH_INC = NM_R + 1;
 const short MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
-const short MAX_NUM_CHILD = 218;
+const short MAX_NUM_CHILD = 218*3; // must be multiple of 3
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -106,7 +106,7 @@ unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 unsigned long long Z_IS_BLACK = 0;
 unsigned long long hash = 0;
 
-const unsigned int TABLE_SZ = 4194304; // 2^22
+const unsigned int TABLE_SZ = 1 << 22; // must be power of 2
 struct TtableEntry {
     unsigned long long hash = 0;
     short score = 0;
@@ -443,11 +443,11 @@ inline void unmove(PLAYER player, SHAPE shape, short sq_i, short sq_f, BoardEntr
 }
 
 /**
- * @return whether the given victim (V_) is the foe of the given player && not king.
+ * @return whether the given victim (_V) is the foe of the given player && not king.
  */
-inline bool can_capture(PLAYER player, PLAYER V_player, SHAPE V_shape)
+inline bool can_capture(PLAYER player, PLAYER player_v, SHAPE shape_v)
 {
-    return V_player != player && V_shape != KING;
+    return player_v != player && shape_v != KING;
 }
 
 class MVVLVAMoveGenerator
@@ -455,7 +455,7 @@ class MVVLVAMoveGenerator
     public:
         MVVLVAMoveGenerator(PLAYER player)
         {
-            gen_MVVLVA_moves(player);
+            gen_MVVLmoves_va(player);
         }
 
         /**
@@ -494,36 +494,36 @@ class MVVLVAMoveGenerator
          * 
          * quiet_moves[] is the last array in moves[] (KING x PAWN).
          */
-        short moves[KING][MAX_SHAPE][MAX_NUM_CHILD*3] = {{{}}}, moves_sz[KING][MAX_SHAPE] = {{}}, *quiet_moves = moves[QUEEN][KING], &quiet_moves_sz = moves_sz[QUEEN][KING];
+        short moves[KING][MAX_SHAPE][MAX_NUM_CHILD] = {{{}}}, moves_sz[KING][MAX_SHAPE] = {{}}, *quiet_moves = moves[QUEEN][KING], &quiet_moves_sz = moves_sz[QUEEN][KING];
         short sq_i = 0, sq_f = 0, ii = 0, iii = 0, iv = 0;
-        SHAPE A_shape, V_shape;
+        SHAPE shape_a, shape_v;
         BoardEntry victim;
 
         inline void MVVLVA_insert()
         {
-            short *VA_moves = moves[QUEEN-V_shape][A_shape];
-            short &VA_sz = moves_sz[QUEEN-V_shape][A_shape];
-            VA_moves[VA_sz++] = A_shape;
-            VA_moves[VA_sz++] = sq_i;
-            VA_moves[VA_sz++] = sq_f;
+            short *moves_va = moves[QUEEN-shape_v][shape_a];
+            short &moves_sz_va = moves_sz[QUEEN-shape_v][shape_a];
+            moves_va[moves_sz_va++] = shape_a;
+            moves_va[moves_sz_va++] = sq_i;
+            moves_va[moves_sz_va++] = sq_f;
         }
 
         inline void quiet_insert()
         {
-            quiet_moves[quiet_moves_sz++] = A_shape;
+            quiet_moves[quiet_moves_sz++] = shape_a;
             quiet_moves[quiet_moves_sz++] = sq_i;
             quiet_moves[quiet_moves_sz++] = sq_f;
         }
 
-        void gen_MVVLVA_moves(PLAYER player)
+        void gen_MVVLmoves_va(PLAYER player)
         {
             for (short i = 0; i <= BEGIN[player][KING]; i++)
             {
                 sq_i = board[player][i].sq;
                 if (sq_i >= 0) // if not captured
                 {
-                    A_shape = board[player][i].shape;
-                    if (A_shape == PAWN)
+                    shape_a = board[player][i].shape;
+                    if (shape_a == PAWN)
                     {
                         short y_i = y_of(sq_i);
                         if (1 <= y_i && y_i <= 6)
@@ -534,11 +534,11 @@ class MVVLVAMoveGenerator
                             for (short dx = -1; dx <= 1; dx += 2)
                             {
                                 sq_f = sq_y + dx;
-                                if (squares[sq_f])
+                                if (sq_f >= 0 && squares[sq_f])
                                 {
                                     victim = *squares[sq_f];
-                                    V_shape = victim.shape;
-                                    if (can_capture(player, victim.player, V_shape))
+                                    shape_v = victim.shape;
+                                    if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
                                 }
                             }
@@ -557,7 +557,7 @@ class MVVLVAMoveGenerator
                             }
                         }
                     }
-                    else if (A_shape == KNIGHT)
+                    else if (shape_a == KNIGHT)
                     {
                         for (short v: N_VECTOR)
                         {
@@ -569,14 +569,14 @@ class MVVLVAMoveGenerator
                                 else
                                 {
                                     victim = *squares[sq_f];
-                                    V_shape = victim.shape;
-                                    if (can_capture(player, victim.player, V_shape))
+                                    shape_v = victim.shape;
+                                    if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
                                 }
                             }
                         }
                     }
-                    else if (A_shape == KING)
+                    else if (shape_a == KING)
                     {
                         for (short v: K_VECTOR)
                         {
@@ -588,8 +588,8 @@ class MVVLVAMoveGenerator
                                 else
                                 {
                                     victim = *squares[sq_f];
-                                    V_shape = victim.shape;
-                                    if (can_capture(player, victim.player, V_shape))
+                                    shape_v = victim.shape;
+                                    if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
                                 }
                             }
@@ -597,7 +597,7 @@ class MVVLVAMoveGenerator
                     }
                     else
                     {
-                        if (A_shape == BISHOP || A_shape == QUEEN)
+                        if (shape_a == BISHOP || shape_a == QUEEN)
                         {
                             for (short v: B_VECTOR)
                             {
@@ -607,13 +607,13 @@ class MVVLVAMoveGenerator
                                 if (is_play_area(sq_f))
                                 {
                                     victim = *squares[sq_f];
-                                    V_shape = victim.shape;
-                                    if (can_capture(player, victim.player, V_shape))
+                                    shape_v = victim.shape;
+                                    if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
                                 }
                             }
                         }
-                        if (A_shape == ROOK || A_shape == QUEEN)
+                        if (shape_a == ROOK || shape_a == QUEEN)
                         {
                             for (short v: R_VECTOR)
                             {
@@ -624,8 +624,8 @@ class MVVLVAMoveGenerator
                                 if (is_play_area(sq_f))
                                 {
                                     victim = *squares[sq_f];
-                                    V_shape = victim.shape;
-                                    if (can_capture(player, victim.player, V_shape))
+                                    shape_v = victim.shape;
+                                    if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
                                 }
                             }
@@ -656,21 +656,21 @@ inline bool is_path_clear(short sq_i, short sq_f, short dx, short dy)
  */
 bool is_attacked(PLAYER player, short sq)
 {
-    short i = 0, dx = 0, dy = 0, y = 0, sq_foe = 0;
+    short i = 0, dx = 0, dy = 0, y = 0, sq_a = 0;
 
     // check for foe pawns by being a pawn and check where I can capture
     y = y_of(sq);
     if (1 <= y && y <= 6)
     {
         short sq_y = sq + rel_foward[player];
-        BoardEntry entry;
+        BoardEntry attacker;
         for (dx = -1; dx <= 1; dx += 2)
         {
-            sq_foe = sq_y + dx;
-            if (squares[sq_foe])
+            sq_a = sq_y + dx;
+            if (sq_a >= 0 && squares[sq_a])
             {
-                entry = *squares[sq_foe];
-                if (entry.player != player && entry.shape == PAWN)
+                attacker = *squares[sq_a];
+                if (attacker.player != player && attacker.shape == PAWN)
                     return true;
             }
         }
@@ -679,11 +679,11 @@ bool is_attacked(PLAYER player, short sq)
     // check for foe knights by iterating over all foe knights
     for (i = BEGIN[!player][KNIGHT]; i < BEGIN[!player][BISHOP]; i++)
     {
-        sq_foe = board[!player][i].sq;
-        if (sq_foe >= 0) // if not captured
+        sq_a = board[!player][i].sq;
+        if (sq_a >= 0) // if not captured
         {
-            dx = abs(x_of(sq_foe) - x_of(sq));
-            dy = abs(y_of(sq_foe) - y_of(sq));
+            dx = abs(x_of(sq_a) - x_of(sq));
+            dy = abs(y_of(sq_a) - y_of(sq));
             if ((dx == 1 && dy == 2) || (dx == 2 && dy == 1))
                 return true;
         }
@@ -692,12 +692,12 @@ bool is_attacked(PLAYER player, short sq)
     // check for foe bishops
     for (i = BEGIN[!player][BISHOP]; i < BEGIN[!player][ROOK]; i++)
     {
-        sq_foe = board[!player][i].sq;
-        if (sq_foe >= 0)
+        sq_a = board[!player][i].sq;
+        if (sq_a >= 0)
         {
-            dx = abs(x_of(sq_foe) - x_of(sq));
-            dy = abs(y_of(sq_foe) - y_of(sq));
-            if (dx == dy && is_path_clear(sq, sq_foe, dx, dy))
+            dx = abs(x_of(sq_a) - x_of(sq));
+            dy = abs(y_of(sq_a) - y_of(sq));
+            if (dx == dy && is_path_clear(sq, sq_a, dx, dy))
                 return true;
         }
     }
@@ -705,30 +705,30 @@ bool is_attacked(PLAYER player, short sq)
     // check for foe rooks
     for (i = BEGIN[!player][ROOK]; i < BEGIN[!player][QUEEN]; i++)
     {
-        sq_foe = board[!player][i].sq;
-        if (sq_foe >= 0)
+        sq_a = board[!player][i].sq;
+        if (sq_a >= 0)
         {
-            dx = abs(x_of(sq_foe) - x_of(sq));
-            dy = abs(y_of(sq_foe) - y_of(sq));
-            if ((dx == 0 || dy == 0) && is_path_clear(sq, sq_foe, dx, dy))
+            dx = abs(x_of(sq_a) - x_of(sq));
+            dy = abs(y_of(sq_a) - y_of(sq));
+            if ((dx == 0 || dy == 0) && is_path_clear(sq, sq_a, dx, dy))
                 return true;
         }
     }
 
     // check for foe queen
-    sq_foe = board[!player][BEGIN[!player][QUEEN]].sq;
-    if (sq_foe >= 0)
+    sq_a = board[!player][BEGIN[!player][QUEEN]].sq;
+    if (sq_a >= 0)
     {
-        dx = abs(x_of(sq_foe) - x_of(sq));
-        dy = abs(y_of(sq_foe) - y_of(sq));
-        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq, sq_foe, dx, dy))
+        dx = abs(x_of(sq_a) - x_of(sq));
+        dy = abs(y_of(sq_a) - y_of(sq));
+        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq, sq_a, dx, dy))
             return true;
     }
 
     // check for foe king
-    // sq_foe = board[!player][BEGIN[!player][KING]].sq;
-    // dx = abs(x_of(sq_foe) - x_of(sq));
-    // dy = abs(y_of(sq_foe) - y_of(sq));
+    // sq_a = board[!player][BEGIN[!player][KING]].sq;
+    // dx = abs(x_of(sq_a) - x_of(sq));
+    // dy = abs(y_of(sq_a) - y_of(sq));
     // if (std::max(dx, dy) == 1)
     //     return true;
 
@@ -884,27 +884,27 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
 
     // Null-Move (NM) Pruning
     short child_score = 0;
-    // if (!is_NM_eval && !is_PV_node && depth <= MAX_NM_DEPTH && phase > 0 && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
-    // {
-    //     if (player == MAXER)
-    //     {
-    //         child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, beta-1, beta, true, is_PV_node);
-    //         if (child_score >= beta)
-    //         {
-    //             hash_history[depth] = 0;
-    //             return child_score;
-    //         }
-    //     }
-    //     else
-    //     {
-    //         child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, is_PV_node);
-    //         if (child_score <= alpha)
-    //         {
-    //             hash_history[depth] = 0;
-    //             return child_score;
-    //         }
-    //     }
-    // }
+    if (!is_NM_eval && !is_PV_node && depth <= MAX_NM_DEPTH && phase > 0 && !is_attacked(player, board[player][BEGIN[player][KING]].sq))
+    {
+        if (player == MAXER)
+        {
+            child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, beta-1, beta, true, is_PV_node);
+            if (child_score >= beta)
+            {
+                hash_history[depth] = 0;
+                return child_score;
+            }
+        }
+        else
+        {
+            child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, is_PV_node);
+            if (child_score <= alpha)
+            {
+                hash_history[depth] = 0;
+                return child_score;
+            }
+        }
+    }
 
     short score = (player == MAXER) ? SHRT_MIN : SHRT_MAX, sq_i = 0, sq_f = 0;
     unsigned long long child_hash = 0;
@@ -966,7 +966,7 @@ short bot_move(PLAYER player)
 
     hash_history[0] = hash;
 
-    std::cout << "Possible {sq_i, sq_f, score}:" << std::endl;
+    std::cout << "Possible {square_i, square_f, score}:" << std::endl;
     MVVLVAMoveGenerator Moves(player);
     while (Moves.next(shape, sq_i, sq_f))
     {
