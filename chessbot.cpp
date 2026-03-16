@@ -97,7 +97,7 @@ short BEGIN[MAX_PLAYER][MAX_SHAPE] = {{0}};
  * pointers from "wrapping" onto the previous/next row. The real playable area
  * is the leftmost 8x8. Sentinels/empties are nullptr to identify easily using !squares[sq].
  */
-BoardEntry* squares[AREA] = {nullptr};
+BoardEntry *squares[AREA] = {nullptr};
 
 /**
  * Ztable (Zobrist Table)
@@ -1094,7 +1094,7 @@ void console_play()
             }
         }
         while (invalid);
-        move(hash, HUMAN, (*squares[sq_i]).shape, sq_i, sq_f);
+        hash = move(hash, HUMAN, (*squares[sq_i]).shape, sq_i, sq_f);
         std::cout << std::endl;
 
         short outcome = bot_move(BOT);
