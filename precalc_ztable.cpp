@@ -1,5 +1,11 @@
 #include <fstream>
-#include "pcg_modified/pcg_random.hpp"
+#ifdef _MSC_VER
+    #ifndef __attribute__
+        #define __attribute__(x)
+    #endif
+#endif
+#define PCG_LITTLE_ENDIAN 1
+#include "src/pcg_random.hpp"
 
 pcg64 rng(0);
 
@@ -28,7 +34,7 @@ inline bool is_play_area(short sq)
 
 void write_fout(std::ofstream &fout)
 {
-    fout << "unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {";
+    fout << "unsigned long long ZTABLE[MAX_PLAYER][MAX_SHAPE][AREA] = {";
     for (short player = BLACK; player <= WHITE; player++)
     {
         // Ztable

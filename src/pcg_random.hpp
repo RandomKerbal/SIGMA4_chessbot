@@ -71,13 +71,7 @@
  *      > myRNG;
  *
  */
-#ifdef _MSC_VER
-    #ifndef __attribute__
-        #define __attribute__(x)
-    #endif
-#endif
 
-#define PCG_LITTLE_ENDIAN 1
 #ifndef PCG_RAND_HPP_INCLUDED
 #define PCG_RAND_HPP_INCLUDED 1
 
