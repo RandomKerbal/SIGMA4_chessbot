@@ -1,5 +1,8 @@
-/chessbot.ilk
 /chessbot.obj
 /chessbot.pdb
+/precalc_ztable.obj
+/precalc_ztable.pdb
 /test.cpp
+/test.obj
+/test.pdb
 /vc140.pdb
