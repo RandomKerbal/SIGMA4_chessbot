@@ -5,7 +5,7 @@
     #endif
 #endif
 #define PCG_LITTLE_ENDIAN 1
-#include "src/pcg_random.hpp"
+#include "include/pcg_random.hpp"
 
 pcg64 rng(0);
 
