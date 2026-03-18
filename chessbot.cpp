@@ -1,18 +1,19 @@
 #include <algorithm>
 #include <climits>
-
-// remove in VEXIQ
-#include <random>
 #include <iostream>
 #include <iomanip>
+#include <vector>
+#include "pcg_modified/pcg_random.hpp"
 
-std::mt19937_64 rng(0);
+pcg64 rng(0);
 
 const short MAX_DEPTH = 8;
-const short NM_R = 3;
-const short NM_DEPTH_INC = NM_R + 1;
-const short MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
-const short MAX_NUM_CHILD = 54*3; // must be multiple of 3
+const short NM_R = 3,
+            NM_DEPTH_INC = NM_R + 1,
+            MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
+const short MAX_NUM_CHILD = 40,
+            MAX_NUM_CHILD2 = MAX_NUM_CHILD*2,
+            MAX_NUM_CHILD3 = MAX_NUM_CHILD*3;
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -58,12 +59,12 @@ struct BoardEntry {
  */
 BoardEntry board[MAX_PLAYER][16] = {
     {   // black
-        { BLACK, PAWN,  10 }, { BLACK, PAWN,  11 }, { BLACK, PAWN, 12 }, { BLACK, PAWN, 13 }, { BLACK, PAWN, 14 }, { BLACK, PAWN, 15 }, { BLACK, PAWN, 16 }, { BLACK, PAWN, 17 }, // pawn
-        { BLACK, KNIGHT, 1 }, { BLACK, KNIGHT, 6 }, // knight
-        { BLACK, BISHOP, 2 }, { BLACK, BISHOP, 5 }, // bishop
-        { BLACK, ROOK,   0 }, { BLACK, ROOK,   7 }, // rook
-        { BLACK, QUEEN,  3 }, // queen
-        { BLACK, KING,   4 }  // king
+        { BLACK, PAWN,  10 }, { BLACK, PAWN,  11 }, { BLACK, PAWN, 12 }, { BLACK, PAWN, 13 }, { BLACK, PAWN, 14 }, { BLACK, PAWN, 15 }, { BLACK, PAWN, 16 }, { BLACK, PAWN, 17 },
+        { BLACK, KNIGHT, 1 }, { BLACK, KNIGHT, 6 },
+        { BLACK, BISHOP, 2 }, { BLACK, BISHOP, 5 },
+        { BLACK, ROOK,   0 }, { BLACK, ROOK,   7 },
+        { BLACK, QUEEN,  3 },
+        { BLACK, KING,   4 }
     },
     {   // white
         { WHITE, PAWN,   60 }, { WHITE, PAWN,   61 }, { WHITE, PAWN, 62 }, { WHITE, PAWN, 63 }, { WHITE, PAWN, 64 }, { WHITE, PAWN, 65 }, { WHITE, PAWN, 66 }, { WHITE, PAWN, 67 },
@@ -100,13 +101,13 @@ short BEGIN[MAX_PLAYER][MAX_SHAPE] = {{0}};
 BoardEntry *squares[AREA] = {nullptr};
 
 /**
- * Ztable (Zobrist Table)
+ * ZTABLE (Zobrist Table)
  * └── 0,1: see enum PLAYER
  *     └── 0...5: see enum SHAPE
  *         └── 0...80: index on main board
  *             └── random 64-bit integer
  */
-unsigned long long Ztable[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
+unsigned long long ZTABLE[MAX_PLAYER][MAX_SHAPE][AREA] = {{{0}}};
 unsigned long long Z_IS_BLACK = 0;
 unsigned long long hash = 0;
 
@@ -360,13 +361,13 @@ void init_all()
         }
         MAX_PHASE = phase;
 
-        // Ztable
+        // ZTABLE
         for (short shape = PAWN; shape < MAX_SHAPE; shape++)
         {
             for (short sq = 0; sq < AREA; sq++)
             {
                 if (is_play_area(sq))
-                    Ztable[player][shape][sq] = rng();
+                    ZTABLE[player][shape][sq] = rng();
             }
         }
     }
@@ -378,7 +379,7 @@ void init_all()
         if (squares[sq])
         {
             BoardEntry &entry = *squares[sq];
-            hash ^= Ztable[entry.player][entry.shape][sq];
+            hash ^= ZTABLE[entry.player][entry.shape][sq];
         }
     }
 }
@@ -396,7 +397,7 @@ inline unsigned long long move(unsigned long long hash, PLAYER player, SHAPE sha
         phase -= SHAPE_PHASE[del_shape];
         worth_opening[del_player] -= WORTH_OPENING[del_player][del_shape][sq_f];
         worth_endgame[del_player] -= WORTH_ENDGAME[del_player][del_shape][sq_f];
-        hash ^= Ztable[del_player][del_shape][sq_f];
+        hash ^= ZTABLE[del_player][del_shape][sq_f];
     }
 
     BoardEntry * &sq_i_ptr = squares[sq_i];
@@ -406,13 +407,13 @@ inline unsigned long long move(unsigned long long hash, PLAYER player, SHAPE sha
     sq_f_ptr = sq_i_ptr;
     worth_opening[player] += WORTH_OPENING[player][shape][sq_f];
     worth_endgame[player] += WORTH_ENDGAME[player][shape][sq_f];
-    hash ^= Ztable[player][shape][sq_f];
+    hash ^= ZTABLE[player][shape][sq_f];
     
     // remove from initial square
     sq_i_ptr = nullptr;
     worth_opening[player] -= WORTH_OPENING[player][shape][sq_i];
     worth_endgame[player] -= WORTH_ENDGAME[player][shape][sq_i];
-    hash ^= Ztable[player][shape][sq_i];
+    hash ^= ZTABLE[player][shape][sq_i];
 
     hash ^= Z_IS_BLACK;
     return hash;
@@ -464,7 +465,7 @@ class MVVLVAMoveGenerator
     public:
         MVVLVAMoveGenerator(PLAYER player)
         {
-            gen_MVVLmoves_va(player);
+            gen_MVVLVA_moves(player);
         }
 
         /**
@@ -480,7 +481,7 @@ class MVVLVAMoveGenerator
 
                     if (ii + 2 < moves_sz[i_v][i_a])
                     {
-                        shape = SHAPE(arr[ii++]);
+                        shape = SHAPE(i_a);
                         sq_i = arr[ii++];
                         sq_f = arr[ii++];
                         return true;
@@ -491,6 +492,13 @@ class MVVLVAMoveGenerator
                 i_a = 0;
                 i_v++;
             }
+            if (ii + 2 < quiet_moves.size())
+            {
+                shape = SHAPE(quiet_moves[ii++]);
+                sq_i = quiet_moves[ii++];
+                sq_f = quiet_moves[ii++];
+                return true;
+            }
             return false;
         };
 
@@ -499,33 +507,39 @@ class MVVLVAMoveGenerator
          * moves
          * └── victims ordered from most to least valuable: QUEEN, ..., PAWN (KING cannot be captured)
          *     └── attackers ordered from least to most valuable: PAWN, ..., KING
-         *         └── shape, sq_i, sq_f, shape, sq_i, sq_f, ...
+         *         └── sq_i,sq_f, sq_i,sq_f, ...
          * 
-         * quiet_moves[] is the last array in moves[] (KING x PAWN).
+         * quiet_moves has - shape,sq_i,sq_f, shape,sq_i,sq_f, ...
          */
-        short moves[KING][MAX_SHAPE][MAX_NUM_CHILD] = {{{}}}, moves_sz[KING][MAX_SHAPE] = {{}}, *quiet_moves = moves[QUEEN][KING], &quiet_moves_sz = moves_sz[QUEEN][KING];
+        short moves[KING][MAX_SHAPE][MAX_NUM_CHILD2] = {{{0}}}, moves_sz[KING][MAX_SHAPE] = {{0}};
+        std::vector<short> quiet_moves;
         short sq_i = 0, sq_f = 0, i_v = 0, i_a = 0, ii = 0;
         SHAPE shape_a, shape_v;
         BoardEntry victim;
 
         inline void MVVLVA_insert()
         {
-            short *moves_va = moves[QUEEN-shape_v][shape_a];
-            short &moves_sz_va = moves_sz[QUEEN-shape_v][shape_a];
-            moves_va[moves_sz_va++] = shape_a;
-            moves_va[moves_sz_va++] = sq_i;
-            moves_va[moves_sz_va++] = sq_f;
+            short *my_moves = moves[QUEEN-shape_v][shape_a];
+            short &my_moves_sz = moves_sz[QUEEN-shape_v][shape_a];
+            if (my_moves_sz >= MAX_NUM_CHILD2)
+                exit(1);
+
+            my_moves[my_moves_sz++] = sq_i;
+            my_moves[my_moves_sz++] = sq_f;
         }
 
         inline void quiet_insert()
         {
-            quiet_moves[quiet_moves_sz++] = shape_a;
-            quiet_moves[quiet_moves_sz++] = sq_i;
-            quiet_moves[quiet_moves_sz++] = sq_f;
+            short quiet_moves_sz = quiet_moves.size();
+            quiet_moves.resize(quiet_moves_sz + 3);
+            quiet_moves[quiet_moves_sz] = shape_a;
+            quiet_moves[quiet_moves_sz + 1] = sq_i;
+            quiet_moves[quiet_moves_sz + 2] = sq_f;
         }
 
-        void gen_MVVLmoves_va(PLAYER player)
+        void gen_MVVLVA_moves(PLAYER player)
         {
+            quiet_moves.reserve(MAX_NUM_CHILD3);
             for (short i = 0; i <= BEGIN[player][KING]; i++)
             {
                 sq_i = board[player][i].sq;
@@ -841,7 +855,7 @@ inline bool is_repeat(unsigned long long hash, short depth)
 
 inline void into_t_table(TtableEntry &t_entry, unsigned long long hash, short score)
 {
-    if (phase <= t_entry.phase) // if hash collision, keep the one closer to endgame
+    if (phase <= t_entry.phase) // if bucket collision, keep the one closer to endgame
     {
         t_entry.hash = hash;
         t_entry.score = score;
@@ -1079,7 +1093,7 @@ void console_play()
         out_board(true, true, true, true, true);
         do
         {
-            std::cout << "Initial and final entry (intitial square, final square): ";
+            std::cout << "Initial and final 1D coordinates: ";
             std::cin >> sq_i >> sq_f;
             invalid = validate(sq_i, sq_f);
             if (invalid)
