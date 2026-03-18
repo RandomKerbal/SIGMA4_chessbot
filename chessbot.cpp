@@ -8,9 +8,9 @@ const short MAX_DEPTH = 8;
 const short NM_R = 3,
             NM_DEPTH_INC = NM_R + 1,
             MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
-const short MAX_NUM_CHILD = 40,
-            MAX_NUM_CHILD2 = MAX_NUM_CHILD * 2,
-            MAX_NUM_CHILD3 = MAX_NUM_CHILD * 3;
+const short MAX_NUM_AXB = 26,
+            MAX_2NUM_AXB = MAX_NUM_AXB * 2,
+            MAX_3NUM_AXB = MAX_NUM_AXB * 3;
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -51,8 +51,10 @@ struct BoardEntry {
  *     └── 0...16: max total number of pieces of each player
  *         └── entry: { player, shape, sq }
  * 
- * IMPORTANT: Shape order of entries must match enum SHAPE! 
  * If an entry is captured, its sq = sq - AREA. If an entry is empty, its sq = -1.
+ * IMPORTANT: Custom board sizes and positions are supported, but with the following constraints:
+ * 1. Board entries must be sorted by their shape to match enum SHAPE.
+ * 2. Each shape must has a maximum of 8 pieces.
  */
 BoardEntry board[MAX_PLAYER][16] = {
     {   // black
@@ -79,7 +81,7 @@ BoardEntry board[MAX_PLAYER][16] = {
  *     └── 0...5: see enum SHAPE
  *         └── beginning index on the board for each shape of each player.
  * 
- * Since KING is the last shape, BEGIN[player][KING] = used size of board.
+ * Since KING is the last shape, BEGIN[player][KING] = occupied size of board.
  */
 short BEGIN[MAX_PLAYER][MAX_SHAPE] = {{0}};
 
@@ -465,24 +467,24 @@ class MVVLVAMoveGenerator
                 {
                     short *arr = moves[i_v][i_a];
 
-                    if (ii + 1 < moves_sz[i_v][i_a])
+                    if (i + 1 < moves_sz[i_v][i_a])
                     {
                         shape = SHAPE(i_a);
-                        sq_i = arr[ii++];
-                        sq_f = arr[ii++];
+                        sq_i = arr[i++];
+                        sq_f = arr[i++];
                         return true;
                     }
-                    ii = 0;
+                    i = 0;
                     i_a++;
                 }
                 i_a = 0;
                 i_v++;
             }
-            if (ii + 2 < quiet_moves.size())
+            if (i + 2 < quiet_moves.size())
             {
-                shape = SHAPE(quiet_moves[ii++]);
-                sq_i = quiet_moves[ii++];
-                sq_f = quiet_moves[ii++];
+                shape = SHAPE(quiet_moves[i++]);
+                sq_i = quiet_moves[i++];
+                sq_f = quiet_moves[i++];
                 return true;
             }
             return false;
@@ -497,9 +499,9 @@ class MVVLVAMoveGenerator
          * 
          * quiet_moves has - shape,sq_i,sq_f, shape,sq_i,sq_f, ...
          */
-        short moves[KING][MAX_SHAPE][MAX_NUM_CHILD2] = {{{0}}}, moves_sz[KING][MAX_SHAPE] = {{0}};
+        short moves[KING][MAX_SHAPE][MAX_2NUM_AXB] = {{{0}}}, moves_sz[KING][MAX_SHAPE] = {{0}};
         std::vector<short> quiet_moves;
-        short sq_i = 0, sq_f = 0, i_v = 0, i_a = 0, ii = 0;
+        short sq_i = 0, sq_f = 0, i_v = 0, i_a = 0, i = 0;
         SHAPE shape_a, shape_v;
         BoardEntry victim;
 
@@ -507,6 +509,11 @@ class MVVLVAMoveGenerator
         {
             short *my_moves = moves[QUEEN-shape_v][shape_a];
             short &my_moves_sz = moves_sz[QUEEN-shape_v][shape_a];
+            if (my_moves_sz >= MAX_2NUM_AXB)
+            {
+                std::cout << "MOVES OVERFLOW";
+                exit(1);
+            }
             my_moves[my_moves_sz++] = sq_i;
             my_moves[my_moves_sz++] = sq_f;
         }
@@ -522,7 +529,7 @@ class MVVLVAMoveGenerator
 
         void gen_MVVLVA_moves(PLAYER player)
         {
-            quiet_moves.reserve(MAX_NUM_CHILD3);
+            quiet_moves.reserve(MAX_3NUM_AXB);
             for (short i = 0; i <= BEGIN[player][KING]; i++)
             {
                 sq_i = board[player][i].sq;
@@ -721,13 +728,16 @@ bool is_checked(PLAYER player)
     }
 
     // check for enemy queen
-    sq_a = board[!player][BEGIN[!player][QUEEN]].sq;
-    if (sq_a >= 0)
+    for (i = BEGIN[!player][QUEEN]; i < BEGIN[!player][KING]; i++)
     {
-        dx = abs(x_of(sq_a) - x_of(sq_v));
-        dy = abs(y_of(sq_a) - y_of(sq_v));
-        if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
-            return true;
+        sq_a = board[!player][i].sq;
+        if (sq_a >= 0)
+        {
+            dx = abs(x_of(sq_a) - x_of(sq_v));
+            dy = abs(y_of(sq_a) - y_of(sq_v));
+            if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
+                return true;
+        }
     }
 
     // no check for enemy king since king cannot attack king
