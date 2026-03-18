@@ -54,7 +54,7 @@ void write_fout(std::ofstream &fout)
         }
         fout << "},";
     }
-    fout << "};\nunsigned long long Z_IS_BLACK = " << rng() << ";";
+    fout << "};\nunsigned long long Z_IS_BLACK = " << rng() << "ULL;";
 }
 
 int main()

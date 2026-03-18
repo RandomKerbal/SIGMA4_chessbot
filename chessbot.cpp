@@ -9,8 +9,8 @@ const short NM_R = 3,
             NM_DEPTH_INC = NM_R + 1,
             MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
 const short MAX_NUM_CHILD = 40,
-            MAX_NUM_CHILD2 = MAX_NUM_CHILD*2,
-            MAX_NUM_CHILD3 = MAX_NUM_CHILD*3;
+            MAX_NUM_CHILD2 = MAX_NUM_CHILD * 2,
+            MAX_NUM_CHILD3 = MAX_NUM_CHILD * 3;
 
 enum PLAYER: short {
     BLACK = 0, WHITE = 1,
@@ -465,7 +465,7 @@ class MVVLVAMoveGenerator
                 {
                     short *arr = moves[i_v][i_a];
 
-                    if (ii + 2 < moves_sz[i_v][i_a])
+                    if (ii + 1 < moves_sz[i_v][i_a])
                     {
                         shape = SHAPE(i_a);
                         sq_i = arr[ii++];
@@ -507,9 +507,6 @@ class MVVLVAMoveGenerator
         {
             short *my_moves = moves[QUEEN-shape_v][shape_a];
             short &my_moves_sz = moves_sz[QUEEN-shape_v][shape_a];
-            if (my_moves_sz >= MAX_NUM_CHILD2)
-                exit(1);
-
             my_moves[my_moves_sz++] = sq_i;
             my_moves[my_moves_sz++] = sq_f;
         }
