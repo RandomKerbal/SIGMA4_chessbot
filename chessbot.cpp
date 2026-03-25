@@ -12,49 +12,51 @@ const short MAX_NUM_AXB = 26,
             MAX_2NUM_AXB = MAX_NUM_AXB * 2,
             MAX_3NUM_AXB = MAX_NUM_AXB * 3;
 
-enum PLAYER: short {
+enum Player: short {
     BLACK = 0, WHITE = 1,
     MAX_PLAYER = 2,
     MINER = BLACK, MAXER = WHITE,
     BOT = BLACK, HUMAN = WHITE,
 };
-inline PLAYER operator!(PLAYER player)
+inline Player operator!(Player player)
 {
-    return PLAYER(player^1);
+    return Player(player^1);
 }
-enum SHAPE: short {
+enum Shape: short {
     PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5,
     MAX_SHAPE = 6
 };
 /**
  * SHAPE_PHASE
- * └── 0...5: see enum SHAPE
+ * └── 0...5: see enum Shape
  *     └── how much each shape contributes to the game's phase
  * 
  * values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
-const short SHAPE_PHASE[MAX_SHAPE] = { 0, 1, 1, 2, 4, 0 };
+const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 };
 
-const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
+const short PLAY_WIDTH = 8, WIDTH = PLAY_WIDTH + 2, AREA = PLAY_WIDTH*WIDTH;
 
 struct BoardEntry {
-    PLAYER player;
-    SHAPE shape;
+    Player player;
+    Shape shape;
     short sq;
 
-    BoardEntry(PLAYER player = BLACK, SHAPE shape = PAWN, short sq = -1) : player(player), shape(shape), sq(sq)
+    BoardEntry(Player player = BLACK, Shape shape = PAWN, short sq = -1) : player(player), shape(shape), sq(sq)
     {}
 };
 /**
  * board
- * └── 0,1: see enum PLAYER
+ * └── 0,1: see enum Player
  *     └── 0...16: max total number of pieces of each player
- *         └── entry: { player, shape, sq }
+ *         └── piece: { player, shape, sq }
  * 
- * If an entry is captured, its sq = sq - AREA. If an entry is empty, its sq = -1.
+ * If an piece is captured, its sq = sq - AREA.
+ * To access KING, use board[NBRQ_END] since KING must be last element.
+ * 
  * IMPORTANT: Custom board sizes and positions are supported, but with the following constraints:
- * 1. Board entries must be sorted by their shape to match enum SHAPE.
- * 2. Each shape must has a maximum of 8 pieces.
+ * 1. First element must be PAWN. Last element must be KING.
+ * 2. Each shape has a maximum of 8 pieces.
  */
 BoardEntry board[MAX_PLAYER][16] = {
     {   // black
@@ -74,16 +76,8 @@ BoardEntry board[MAX_PLAYER][16] = {
         { WHITE, KING,   74 }
     }
 };
-
-/**
- * BEGIN
- * └── 0,1: see enum PLAYER
- *     └── 0...5: see enum SHAPE
- *         └── beginning index on the board for each shape of each player.
- * 
- * Since KING is the last shape, BEGIN[player][KING] = occupied size of board.
- */
-short BEGIN[MAX_PLAYER][MAX_SHAPE] = {{0}};
+BoardEntry *NBRQ_BEGIN[MAX_PLAYER] = {nullptr};
+BoardEntry *NBRQ_END[MAX_PLAYER] = {nullptr};
 
 /** 
  * squares
@@ -91,46 +85,46 @@ short BEGIN[MAX_PLAYER][MAX_SHAPE] = {{0}};
  * │   └── nullptr as sentinel
  * │
  * └── columns 0...8 element
- *     └── pointer to an entry in the main board, else nullptr as empty square.
+ *     └── pointer to a piece in the main board, else nullptr as empty square.
  * 
- * The board is 10x8 since the two rightmost columns are sentinels that prevent
- * pointers from "wrapping" onto the previous/next row. The real playable area
- * is the leftmost 8x8. Sentinels/empties are nullptr to identify easily using !squares[sq].
+ * The squares is 10x8 since the two rightmost columns are sentinels that prevent
+ * iterators from "wrapping" onto the previous/next row. Sentinels/empties are nullptr to identify easily using !squares[sq].
  */
 BoardEntry *squares[AREA] = {nullptr};
 
 /**
  * ZTABLE (Zobrist Table)
- * └── 0,1: see enum PLAYER
- *     └── 0...5: see enum SHAPE
+ * └── 0,1: see enum Player
+ *     └── 0...5: see enum Shape
  *         └── 0...80: index on main board
  *             └── random 64-bit integer
  */
 unsigned long long ZTABLE[MAX_PLAYER][MAX_SHAPE][AREA] = {{{74029666500212977ULL,8088122161323000979ULL,16521829690994476282ULL,10814004662382438494ULL,9052198920789078554ULL,7381380909356947872ULL,10961594741481288303ULL,12502116868085730778ULL,0,0,16285795259516428329ULL,6715870808026712034ULL,528819992478005418ULL,2284534088986354339ULL,10169200759946765890ULL,3813019469742317492ULL,10592760183762258614ULL,7367238674766648970ULL,0,0,8217673022687244206ULL,3185531743396549562ULL,4800618912728694941ULL,13001216913356387140ULL,1176407869339060974ULL,4150604921837518705ULL,15145879036230750153ULL,994800405537611429ULL,0,0,14929242313517210031ULL,3154703689421785657ULL,13657994561754603932ULL,6249946986953333237ULL,1660217323733090078ULL,14005543184922861485ULL,16585001373474024155ULL,1666516127252300525ULL,0,0,2520622342062774609ULL,9082651322321000509ULL,15707617857353975308ULL,12331560545761409745ULL,6406546869475516057ULL,14097720597159422151ULL,105262242311684541ULL,8294782069855283264ULL,0,0,4633297685661641163ULL,6612006991566468995ULL,8580220009698662865ULL,8532728303557126422ULL,10445062476084314952ULL,17330108918608370189ULL,1533223081929501252ULL,9032221229430595433ULL,0,0,85744951902259612ULL,5072914322092137863ULL,1705557957893756992ULL,10786534327977901886ULL,171055579667516423ULL,12924737413339982175ULL,16740178879546805369ULL,1381545967461782227ULL,0,0,3884297591412308228ULL,11482872140661275513ULL,4532672523855618611ULL,5402165089034676429ULL,911196135802991530ULL,5721628401196675474ULL,9845601803218810675ULL,8121722726619544262ULL,0,0,},{6418390600164794941ULL,10798681683410088481ULL,10547572856502128731ULL,11265706971937695313ULL,9631841427514440541ULL,14253161230444409170ULL,3487965410964113806ULL,1348106002602736901ULL,0,0,13559874913807119612ULL,10556648567901077473ULL,10989223534398043198ULL,11069034901933776691ULL,11527009430806237762ULL,17983299841967046292ULL,17362943787638332501ULL,4355076706608268429ULL,0,0,7398716852201294433ULL,3041100610853721552ULL,8728113967719027725ULL,16897271881581495344ULL,11559405001618486843ULL,14636084054508994076ULL,5716513312488662692ULL,10828823829382206079ULL,0,0,3512684089851768805ULL,12075585818471924944ULL,13484556783224448151ULL,15544587733611659637ULL,1008545732055793944ULL,11759370880280705660ULL,5249745689662851170ULL,3624394618964842085ULL,0,0,17358057200071991236ULL,8993023195683161014ULL,11578690971495685696ULL,17178376515465460272ULL,13353295228484708474ULL,14529424297291004576ULL,4177824568197517782ULL,13748400752274061640ULL,0,0,7778988443811410815ULL,9252047330384659383ULL,11454369011308009369ULL,12423510493999914261ULL,15198953130483956632ULL,12508108169177652322ULL,11196143702339112515ULL,849144443972678235ULL,0,0,5366042653427013937ULL,5044836495604047913ULL,12913407561520745160ULL,168581266862557880ULL,892257883531561177ULL,16559758963868987272ULL,11085137818217774471ULL,10180537358702560037ULL,0,0,1183416690486707853ULL,8304998909831325816ULL,9262385289123743569ULL,3718330567954916309ULL,6057578968889374870ULL,15584182902957246979ULL,2268827376874419298ULL,15736223385328115852ULL,0,0,},{15261407655259884641ULL,6244772600951701528ULL,3118012417176200953ULL,5971253186274813512ULL,14037006370725304708ULL,17961850548499832383ULL,6781089859894055876ULL,13196764110493140908ULL,0,0,10732594033709189751ULL,1966081860983889306ULL,2246365929802474402ULL,1642668612429494448ULL,17667645484694221079ULL,2523580807291849034ULL,10885405289193129036ULL,16070177209578491048ULL,0,0,682335792039501995ULL,5415849263638585055ULL,16260966945392556483ULL,9806901350907091206ULL,11681587348973866521ULL,8154621732281042944ULL,9387085288892430557ULL,3682925334573723175ULL,0,0,12140442299651313005ULL,12947662377909817347ULL,16865635944331379928ULL,8541161170937428210ULL,9162955100843081522ULL,4285602076825985820ULL,6885657696468527016ULL,15382475835277286727ULL,0,0,16065429524077061306ULL,12530149097919388974ULL,15500518840829283143ULL,79701154536258008ULL,3696985018356685969ULL,16322529325561111026ULL,13566837391492536286ULL,7659719702928955188ULL,0,0,3954335125532835028ULL,13990604166907934200ULL,10832319170127141235ULL,9151285123481991033ULL,9791388198911030927ULL,330527411129058352ULL,11227821130749543551ULL,3628005836801336230ULL,0,0,2733238636323519199ULL,17700017727151708480ULL,1829534188351408474ULL,5113833927428373148ULL,11894505290753464328ULL,669023595704811611ULL,11450903236206089569ULL,13236846441918391300ULL,0,0,1098736199991765674ULL,11294852253205023906ULL,3364355597830055960ULL,13175718524289921977ULL,9402714673807124443ULL,9483155878108828840ULL,7413666785212852097ULL,9927366268453078920ULL,0,0,},{14932400091498415929ULL,2225884169444427277ULL,7778253887750064800ULL,2604954496734660665ULL,9865180094071390941ULL,11108165687462577140ULL,18188462914761569199ULL,8014163298514777029ULL,0,0,9973498636328004610ULL,16712054976334098779ULL,13849364616523297164ULL,18381091770455603837ULL,14207639838992564363ULL,4411841014672487555ULL,3519411022409239127ULL,12495135549364646006ULL,0,0,7111209557484616406ULL,6400497572114594006ULL,110650349332432029ULL,1742473191605151822ULL,3624566459699234627ULL,14982699022111008388ULL,16283559766076819334ULL,15932000525503184649ULL,0,0,16452413828784968906ULL,12278400056105609448ULL,17721685876795990568ULL,16848964164354909434ULL,10374742828448542609ULL,7868074289502595334ULL,11227203845265157251ULL,15976775039839642025ULL,0,0,979648895853525837ULL,13399008201626333310ULL,13676063718391391261ULL,90585445590455763ULL,9934731534070512068ULL,1918207312473253293ULL,7997907791709396066ULL,14991162669877674395ULL,0,0,7328742574294029168ULL,17051531180120844925ULL,318655917490699257ULL,9419749912976055229ULL,7616169265156676355ULL,15846361897535787035ULL,1129047973846456305ULL,9030568364430383492ULL,0,0,14802294019749965891ULL,14621885716402095979ULL,9953980082803523578ULL,6070353373864052970ULL,14575096362250000993ULL,2465647768894274238ULL,15992120879468557472ULL,2079613040941731860ULL,0,0,8413106732640660401ULL,658583431217496376ULL,294920781974011157ULL,3541847112818412604ULL,11211491318567598927ULL,7150213768029909230ULL,796670500901612374ULL,3220635951316110930ULL,0,0,},{4905938822370460362ULL,5034203063775638119ULL,14140911575401691940ULL,6288661950726353994ULL,10761443284915716811ULL,13529279512405766935ULL,14340362918974597040ULL,9300364919147442981ULL,0,0,11533614609267944219ULL,16747005497647345914ULL,6343661169944166493ULL,16200955028660891684ULL,17002398504875586688ULL,3419249036035170728ULL,17678177443255459263ULL,8459292702486185380ULL,0,0,4603684788569291541ULL,3304401906258410482ULL,4829308868093038630ULL,15364544933404879055ULL,3734643158039494027ULL,4836576576312080116ULL,6366469096631510188ULL,9615289327088055028ULL,0,0,17782472613238601581ULL,14704485741953972698ULL,2929162723966800252ULL,17295164646707174833ULL,283978297467456258ULL,1461212704199518937ULL,11645983930521480351ULL,16395201168154788968ULL,0,0,14048936915336379821ULL,17561497143397526279ULL,1524343404608003333ULL,15164052175426322206ULL,7823921401719711680ULL,6293523369979507792ULL,166106974219543970ULL,14582426414191383325ULL,0,0,12494997043312710721ULL,5386027198469121703ULL,12189125339000494093ULL,18323180686025206106ULL,6832525433316507030ULL,11423981113459407574ULL,16647565231320212109ULL,10512276283069448457ULL,0,0,16019490847362938949ULL,8063135482435113268ULL,673237423857484419ULL,6525638293896100670ULL,12820745401965537296ULL,1824495315844838561ULL,550302278691646824ULL,16184130343321003876ULL,0,0,16938685161855735955ULL,2392101696366084823ULL,4973690626494363757ULL,610368751500865804ULL,17044253726012122469ULL,7043379469424944114ULL,3057064162676289544ULL,5260412029521111908ULL,0,0,},{5244956469528694384ULL,15188280693463717633ULL,7940886018769738255ULL,6966765411241119217ULL,6674010252574331611ULL,4386998180016139042ULL,17487411500725569574ULL,3946585561366834046ULL,0,0,2208053568392447656ULL,16636979463892200830ULL,17567014929177426927ULL,10570139372218786480ULL,5086532175765079167ULL,7871713741463933130ULL,11688853438383627999ULL,9525113203672208288ULL,0,0,7036353440516444175ULL,270703028010966348ULL,1921667556519236602ULL,15661284267499174711ULL,14907988177282581014ULL,10817173630558095511ULL,4552341326874552306ULL,2360095527808530404ULL,0,0,15649191812914541460ULL,7723120738675199760ULL,14879602975708521294ULL,11210976695171182136ULL,15724623746587511723ULL,17545378103601234790ULL,8108620177781061056ULL,838460441343918020ULL,0,0,5027396329109468803ULL,3470140887391490902ULL,10914369868946837388ULL,8138664905263610928ULL,10741441732576103584ULL,4195484806268700909ULL,18201256265814300318ULL,17109238924786621630ULL,0,0,13640823520361358487ULL,4019712512249701658ULL,12156933533891872852ULL,4597643467377464426ULL,14788616679967752233ULL,12526668331844342654ULL,2924726547933039805ULL,3930774100689039406ULL,0,0,11032733921183353746ULL,5052946960791537331ULL,14164414392224631013ULL,7617849465435585821ULL,17987664775726303664ULL,9179221701048995450ULL,7199033476951675084ULL,6790502382209392924ULL,0,0,6944109911994036404ULL,739458865719700411ULL,11463685164407831098ULL,8235597206738953477ULL,16638406588037095610ULL,7375954043915892863ULL,8006172339323979801ULL,4807004627576728273ULL,0,0,},},{{4684601674177657733ULL,11044255351182035870ULL,568769251628422603ULL,13569816392816428733ULL,11513702594140843510ULL,15837153834503924200ULL,10662188674645711626ULL,3662975661977117749ULL,0,0,12716603653663620557ULL,11453928455864331646ULL,15388011980976202061ULL,11350559548161594234ULL,18410523106724761279ULL,11747023228030566417ULL,17367867389665909185ULL,14029931630891563889ULL,0,0,16469661281322371977ULL,14870469840880807042ULL,7316495785349773919ULL,17527396183611806807ULL,14229361052603990439ULL,10053560069907491796ULL,18112991269051837554ULL,487257815795075064ULL,0,0,2803854852697583226ULL,1019788329170733358ULL,1853777268934257210ULL,4835985635035653786ULL,14718299891906740588ULL,1300594922681941432ULL,11844763913238941518ULL,6409978710596125782ULL,0,0,12371825315833523842ULL,11594067592022671918ULL,3965900672939344587ULL,15376678248794605142ULL,2626006836543715485ULL,8606208143741198763ULL,13705765062360227640ULL,14921208545568148232ULL,0,0,7730249546812796122ULL,2086119614903884289ULL,1776678126851370890ULL,14590414979900534866ULL,809522281319586232ULL,4909018723817696485ULL,5982298213035124319ULL,1109501683968207897ULL,0,0,17411129279257017357ULL,15598249067769378707ULL,14448713054734532378ULL,7108883246393600040ULL,9594890252785336007ULL,10582882020823080840ULL,2545954987058747272ULL,13220067807641671759ULL,0,0,14065523439197834863ULL,17775504717717276426ULL,10697636655478480361ULL,10423201473419201208ULL,4421874485485529100ULL,3638012815625434136ULL,17432157952017648082ULL,3545290425813408429ULL,0,0,},{9167623025885026578ULL,13645274567361511361ULL,9649050789997972163ULL,6685429760418202033ULL,9071881540041088806ULL,9655200812558547172ULL,6785528822683763581ULL,16385722659424719253ULL,0,0,8668527283951416376ULL,784605282027961768ULL,9387601540168506598ULL,12487526075174617882ULL,7380785902408068281ULL,3304455159900290529ULL,10836521292333179581ULL,7569151401979311776ULL,0,0,6433683744112698483ULL,9250220756039820840ULL,328835772982229788ULL,11250057486400974679ULL,1939747375302933968ULL,11945058332695603431ULL,11833723523122027736ULL,2264465459285807014ULL,0,0,16838324449977478566ULL,12003263667140291733ULL,16829401591419013988ULL,5348582218087200212ULL,2848480151293527507ULL,4380614107878964008ULL,1488465417074495234ULL,12555234739164445785ULL,0,0,6947031344777451059ULL,18257351120517534894ULL,1161874912409302005ULL,8454789081976278790ULL,17419988474332951845ULL,10029095857362591423ULL,11521574723563694625ULL,16613741703881419602ULL,0,0,3536097428935940275ULL,2103775946513779358ULL,18336297382352092715ULL,7262815750178310892ULL,6859244754473415990ULL,1495148513497497172ULL,12663833595839442569ULL,13367509860062767185ULL,0,0,16508232302637858934ULL,15280006247631164489ULL,16578528424503448772ULL,5469041327196839937ULL,8822596835040026134ULL,5946706610974605666ULL,8491518265766577150ULL,10659644284534582080ULL,0,0,120278346564104488ULL,9250075808212362405ULL,4275849578506910510ULL,16302634856303910111ULL,11012787458926536833ULL,12737543326621090907ULL,44393133756753102ULL,7280246386578009514ULL,0,0,},{14888681473644806244ULL,11684668428774774449ULL,17832634959750752301ULL,18340678936544536335ULL,5546333236996675572ULL,18425023556138291075ULL,514065084740335519ULL,13723957688630553523ULL,0,0,2116104913464424272ULL,17378269121157181219ULL,2793621877970885009ULL,5523858681983538907ULL,5263539400456537768ULL,2161722743535123570ULL,2489034928292879176ULL,5265114531195498824ULL,0,0,7648508315431211009ULL,986726328139979920ULL,9933073620644593914ULL,18120616563520061683ULL,4356303394811149501ULL,11049608748625367451ULL,17744082017179498186ULL,10017393428496602585ULL,0,0,13642742954323190280ULL,12637422661261061796ULL,7524279633090589795ULL,1002932607331396910ULL,18183694094871117475ULL,4597571021641717445ULL,10845712040344574406ULL,16551443287357649839ULL,0,0,5375397959598136222ULL,11070147220532183957ULL,11573702992674152929ULL,816509176753459843ULL,5466778547799153779ULL,7219022431771467309ULL,14343815497120683835ULL,5925523953969302118ULL,0,0,9505422571055073650ULL,12910836584513599447ULL,6299985034633599287ULL,2865215480305394071ULL,296544412155312942ULL,1864824225841999179ULL,16568824517483532676ULL,8315326244322262127ULL,0,0,12085847678114510175ULL,16244519530393558778ULL,5645331405017592515ULL,9067675365583859890ULL,3569177387594876878ULL,4993764635040412853ULL,8036587240194135087ULL,18380845472281559487ULL,0,0,5119139243869326319ULL,12184919191278123490ULL,12150520387884743181ULL,15497250426497546487ULL,9850160921164149500ULL,14036263736832454650ULL,3612491355254717946ULL,17126003938209831533ULL,0,0,},{10875798209576231062ULL,4917139815936242069ULL,13659952758672563936ULL,13174055081745361497ULL,11879825313048125217ULL,10317821801454245666ULL,12277656132059102290ULL,5552473049872220674ULL,0,0,13747373441069267374ULL,4355611199639507996ULL,8254966398732937613ULL,516953752584511849ULL,2188256745564870760ULL,18059981887931373614ULL,13564718687422687476ULL,8051674951164082026ULL,0,0,7554602974754328019ULL,16337077539777088430ULL,4503168333357747149ULL,4129421530629073217ULL,1618749620663669746ULL,4320819461114205914ULL,11680548853732580795ULL,1777627061212503588ULL,0,0,18358234805187233110ULL,13767814104271845789ULL,18370606457708852198ULL,796294887832488834ULL,7188940594364351075ULL,5822196978029845410ULL,17214420804468229292ULL,14433474701864361541ULL,0,0,17476643135669525585ULL,13317569830705750889ULL,13608581177301646912ULL,8071262772343432343ULL,8482375095688413636ULL,9208005565014175425ULL,7148373425726752932ULL,6119214473331208714ULL,0,0,14930702649110412429ULL,5442985695014876605ULL,10726004832800083754ULL,18010203353985590243ULL,7906659633613241504ULL,2280124615086407200ULL,3410231449686102845ULL,2895317680813189270ULL,0,0,617430890826160480ULL,5426498120915767151ULL,11137668120774625023ULL,8372841058426674710ULL,1260998084381550473ULL,1151122092302209328ULL,4814877633975019055ULL,13108526892548059388ULL,0,0,7234401878084220382ULL,5643195277356502946ULL,10836209979491304381ULL,15672452868074823918ULL,12867581552758430784ULL,18317289525924865889ULL,11073447625211818324ULL,1752095379804733695ULL,0,0,},{14824880053404841108ULL,13231150353320624566ULL,10675190456373489234ULL,8169314835163496329ULL,2656946427541317352ULL,612773720764900155ULL,8273803411079310116ULL,7737867517039938155ULL,0,0,15900130780292929020ULL,4967271389419806121ULL,9695088412288637047ULL,7531624688416107459ULL,10197638259660312819ULL,6945057185177540007ULL,2656497237794391340ULL,18131153577458235430ULL,0,0,880302667633963568ULL,13536185071760613425ULL,17407171846986619887ULL,13334397842183788604ULL,18053479402119697589ULL,8543027083093981733ULL,10753334297271721746ULL,7046903166919267775ULL,0,0,8654689332130778229ULL,11975858083791104314ULL,4115241684238339353ULL,13940987044810699397ULL,15378789508600779842ULL,7807227767982563438ULL,15412915784362493282ULL,8294661155894252596ULL,0,0,12505619918511230402ULL,8440001764585071475ULL,7215691699210132131ULL,395842657061532976ULL,18073305692692651341ULL,7531314454729229676ULL,17175533184676704004ULL,15558796680064457336ULL,0,0,8216891388141837625ULL,15536520852628507245ULL,10326388093775670155ULL,18242574987379145071ULL,10248318580654763140ULL,3170397202380502784ULL,9050891629689570713ULL,17146722180108629489ULL,0,0,6687638613654274868ULL,14303294565406811564ULL,11064420695029253663ULL,13224913489676671374ULL,5321174601978704735ULL,16344256643594743836ULL,5612348724103452223ULL,11729258488540307693ULL,0,0,12148508211594588140ULL,18141432251581361577ULL,6164926601705541641ULL,10111997822437271683ULL,2771996132087204677ULL,6745260053171566883ULL,15378956669921204577ULL,15246107516857501546ULL,0,0,},{15183435648137911298ULL,18177548260560869566ULL,9245421841666689148ULL,2956067775602717478ULL,9146084545561727763ULL,10043784485037597781ULL,16486004647593846985ULL,4802759627871536832ULL,0,0,14400313234048289956ULL,3942260884932549452ULL,3313802327969402534ULL,2503624355908241904ULL,5387414430088654964ULL,11864186913715121847ULL,3242366657310915050ULL,17546491740015993369ULL,0,0,5655617085991042107ULL,5398852764000572999ULL,1672366728509183177ULL,7692198725878732368ULL,12905700308374554401ULL,15866533234800324866ULL,17424242934360685476ULL,8717338386795125070ULL,0,0,1541504966948892830ULL,11468775038760818967ULL,5450287603221478610ULL,13044284175965263716ULL,5912467131361226769ULL,5050704457256743350ULL,5033534344650623526ULL,18227902371379741698ULL,0,0,6273306700773258657ULL,12844327552335885647ULL,4914940742737233723ULL,4902412069432565276ULL,10355583822955021729ULL,4148187645286386289ULL,13709874547792778387ULL,10491924038546893002ULL,0,0,10464871296241642722ULL,5339832502952562330ULL,9364492615480999184ULL,11270501147467783853ULL,14517686523799483160ULL,9095918098546494387ULL,16079192427655976829ULL,9793164603274587477ULL,0,0,6981657576379502552ULL,4675020297088480546ULL,15255559270153174472ULL,15275970808302994941ULL,10344316727974969726ULL,9710088814022923562ULL,7411830437382611757ULL,15558278354380242995ULL,0,0,15544325303648081343ULL,17265148248740124962ULL,15375088858546792285ULL,12291430685298981884ULL,8539918095506988721ULL,2735003535139918042ULL,5315489664230148640ULL,8804180957363905139ULL,0,0,},},};
 unsigned long long Z_IS_BLACK = 6203253927586826328;
-unsigned long long hash = 0;
+unsigned long long hash = NULL;
 
 const unsigned int TABLE_SZ = 1 << 22; // must be power of 2
 struct TtableEntry {
     unsigned long long hash;
     short score;
-    short phase;
+    short depth_sum;
 
-    TtableEntry () : hash(0), score(0), phase(SHRT_MAX)
+    TtableEntry () : hash(0), score(0), depth_sum(0)
     {}
 };
 TtableEntry t_table[TABLE_SZ]; // Transposition Table
 unsigned long long hash_history[MAX_DEPTH] = {0};
+short move_count = NULL;
 
-float MAX_PHASE = 0; // sum of SHAPE_PHASE of all initial pieces
-short phase = 0; // sum of SHAPE_PHASE of all current pieces
+short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
+short phase = NULL; // sum of SHAPE_PHASE of all current pieces
 short worth_opening[MAX_PLAYER] = {0, 0};
 short worth_endgame[MAX_PLAYER] = {0, 0};
 
 /**
  * WORTH_OPENING/ENDGAME (aka Piece-Square Table)
- * └── 0,1: see enum PLAYER
- *     └── 0...5: see enum SHAPE
+ * └── 0,1: see enum Player
+ *     └── 0...5: see enum Shape
  *         └── 0...AREA-1: see main board
  *             └── worth of each shape based on opening/endgame position with player at the bottom
  * 
@@ -319,7 +313,7 @@ short rel_foward[MAX_PLAYER] = { WIDTH, -WIDTH };
 
 inline bool is_play_area(short sq)
 {
-    return unsigned(sq) < AREA && x_of(sq) < 8; // if x < 0, it becomes a huge unsigned number > AREA.
+    return unsigned(sq) < AREA && x_of(sq) < PLAY_WIDTH; // if x < 0, it becomes a huge unsigned number > AREA.
 }
 
 void init_all()
@@ -329,7 +323,7 @@ void init_all()
     {
         for (short sq = 0; sq < AREA; sq++)
         {
-            short sq_mirror = (HEIGHT-1 - y_of(sq))*WIDTH + x_of(sq);
+            short sq_mirror = (PLAY_WIDTH-1 - y_of(sq))*WIDTH + x_of(sq);
             WORTH_OPENING[BLACK][shape][sq] = WORTH_OPENING[WHITE][shape][sq_mirror];
             WORTH_ENDGAME[BLACK][shape][sq] = WORTH_ENDGAME[WHITE][shape][sq_mirror];
 
@@ -338,112 +332,132 @@ void init_all()
 
     for (short player = BLACK; player <= WHITE; player++)
     {
-        // BEGIN, squares, phase, worth_opening, worth_endgame, MAX_PHASE
-        SHAPE prev_shape = PAWN, shape;
-        short i = 0;
-        for (BoardEntry &entry : board[player])
+        // NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, worth_opening, worth_endgame
+        for (BoardEntry &piece : board[player])
         {
-            short sq = entry.sq;
-            if (sq >= 0)
+            short sq = piece.sq;
+            if (sq == -1)
+                break;
+            else
             {
-                shape = entry.shape;
-                if (shape > prev_shape)
-                    BEGIN[player][shape] = i;
+                Shape &shape = piece.shape;
 
-                squares[sq] = &entry;
+                if (!NBRQ_BEGIN[player] && shape != PAWN)
+                    NBRQ_BEGIN[player] = &piece;
+
+                if (shape == KING)
+                    NBRQ_END[player] = &piece;
+
+                squares[sq] = &piece;
+                hash ^= ZTABLE[player][shape][sq];
                 phase += SHAPE_PHASE[shape];
                 worth_opening[player] += WORTH_OPENING[player][shape][sq];
                 worth_endgame[player] += WORTH_ENDGAME[player][shape][sq];
-                prev_shape = shape;
-                i++;
             }
         }
-        MAX_PHASE = phase;
     }
-
-    // hash
-    for (short sq = 0; sq < AREA; sq++)
-    {
-        if (squares[sq])
-        {
-            BoardEntry &entry = *squares[sq];
-            hash ^= ZTABLE[entry.player][entry.shape][sq];
-        }
-    }
+    MAX_PHASE = phase;
 }
 
-inline unsigned long long move(unsigned long long hash, PLAYER player, SHAPE shape, short sq_i, short sq_f)
+inline void add_worths(Player player, Shape shape, short sq)
 {
-    BoardEntry * &sq_f_ptr = squares[sq_f];
-    if (sq_f_ptr)
-    {
-        BoardEntry &del_entry = *sq_f_ptr;
-        del_entry.sq -= AREA; // move sq outside board
+    worth_opening[player] += WORTH_OPENING[player][shape][sq];
+    worth_endgame[player] += WORTH_ENDGAME[player][shape][sq];
+}
 
-        PLAYER del_player = del_entry.player;
-        SHAPE del_shape = del_entry.shape;
+inline void del_worths(Player player, Shape shape, short sq)
+{
+    worth_opening[player] -= WORTH_OPENING[player][shape][sq];
+    worth_endgame[player] -= WORTH_ENDGAME[player][shape][sq];
+}
+
+inline void move(unsigned long long &hash, bool &is_promote, Player player, Shape shape, short sq_i, short sq_f)
+{
+    // capture
+    if (squares[sq_f])
+    {
+        Player del_player = squares[sq_f]->player;
+        Shape del_shape = squares[sq_f]->shape;
+
+        squares[sq_f]->sq -= AREA; // move sq outside board
         phase -= SHAPE_PHASE[del_shape];
-        worth_opening[del_player] -= WORTH_OPENING[del_player][del_shape][sq_f];
-        worth_endgame[del_player] -= WORTH_ENDGAME[del_player][del_shape][sq_f];
+        del_worths(del_player, del_shape, sq_f);
         hash ^= ZTABLE[del_player][del_shape][sq_f];
     }
 
-    BoardEntry * &sq_i_ptr = squares[sq_i];
-
     // add to final square
-    (*sq_i_ptr).sq = sq_f;
-    sq_f_ptr = sq_i_ptr;
-    worth_opening[player] += WORTH_OPENING[player][shape][sq_f];
-    worth_endgame[player] += WORTH_ENDGAME[player][shape][sq_f];
-    hash ^= ZTABLE[player][shape][sq_f];
-    
-    // remove from initial square
-    sq_i_ptr = nullptr;
-    worth_opening[player] -= WORTH_OPENING[player][shape][sq_i];
-    worth_endgame[player] -= WORTH_ENDGAME[player][shape][sq_i];
-    hash ^= ZTABLE[player][shape][sq_i];
+    squares[sq_f] = squares[sq_i];
+    squares[sq_f]->sq = sq_f;
 
-    hash ^= Z_IS_BLACK;
-    return hash;
+    // remove from initial square
+    squares[sq_i] = nullptr;
+    del_worths(player, shape, sq_i);
+    hash ^= ZTABLE[player][shape][sq_i] ^ Z_IS_BLACK;
+
+    if (shape == PAWN && (sq_f < WIDTH || sq_f >= AREA-WIDTH)) // promotion
+    {
+        squares[sq_f]->shape = QUEEN;
+        phase += SHAPE_PHASE[QUEEN]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
+        add_worths(player, QUEEN, sq_f);
+        hash ^= ZTABLE[player][QUEEN][sq_f];
+
+        // swap with the PAWN closest to NBRQ_BEGIN
+        short sq_swap = (--NBRQ_BEGIN[player])->sq;
+        std::swap(*squares[sq_f], *squares[sq_swap]);
+        std::swap(squares[sq_f], squares[sq_swap]);
+        is_promote = true;
+    }
+    else
+    {
+        add_worths(player, shape, sq_f);
+        hash ^= ZTABLE[player][shape][sq_f];
+        is_promote = false;
+    }
 }
 
 /**
  * IMPORTANT:
  * 1. Doesn't undo hash.
  * 2. Same sq_i & sq_f as doing move.
+ * 3. Same shape as before promotion.
  */
-inline void unmove(PLAYER player, SHAPE shape, short sq_i, short sq_f, BoardEntry *add_ptr)
+inline void unmove(bool is_promote, Player player, Shape shape, short sq_i, short sq_f, BoardEntry *add_ptr)
 {
+    // add to initial square
+    squares[sq_i] = squares[sq_f];
+    squares[sq_i]->sq = sq_i;
+    add_worths(player, shape, sq_i);
+
+    // remove/restore final square
+    squares[sq_f] = add_ptr;
     if (add_ptr)
     {
-        BoardEntry &add_entry = *add_ptr;
-        add_entry.sq += AREA; // move sq back inside
+        Player add_player = add_ptr->player;
+        Shape add_shape = add_ptr->shape;
 
-        PLAYER add_player = add_entry.player;
-        SHAPE add_shape = add_entry.shape;
+        add_ptr->sq += AREA; // move sq back inside
         phase += SHAPE_PHASE[add_shape];
-        worth_opening[add_player] += WORTH_OPENING[add_player][add_shape][sq_f];
-        worth_endgame[add_player] += WORTH_ENDGAME[add_player][add_shape][sq_f];
+        add_worths(add_player, add_shape, sq_f);
     }
 
-    BoardEntry * &sq_f_ptr = squares[sq_f];
+    // demotion
+    if (is_promote)
+    {
+        squares[sq_i]->shape = PAWN;
+        phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
+        del_worths(player, QUEEN, sq_f);
 
-    // add to initial square
-    (*sq_f_ptr).sq = sq_i;
-    squares[sq_i] = sq_f_ptr;
-    worth_opening[player] += WORTH_OPENING[player][shape][sq_i];
-    worth_endgame[player] += WORTH_ENDGAME[player][shape][sq_i];
-    
-    // remove from final square
-    sq_f_ptr = add_ptr;
-    worth_opening[player] -= WORTH_OPENING[player][shape][sq_f];
-    worth_endgame[player] -= WORTH_ENDGAME[player][shape][sq_f];
+        // no need to swap PAWNs back
+        NBRQ_BEGIN[player]++;
+    }
+    else
+        del_worths(player, shape, sq_f);
 }
 
 /**
  * @return whether the given victim (_V) is the enemy of the given player && not king.
  */
-inline bool can_capture(PLAYER player, PLAYER player_v, SHAPE shape_v)
+inline bool can_capture(Player player, Player player_v, Shape shape_v)
 {
     return player_v != player && shape_v != KING;
 }
@@ -451,7 +465,7 @@ inline bool can_capture(PLAYER player, PLAYER player_v, SHAPE shape_v)
 class MVVLVAMoveGenerator
 {
     public:
-        MVVLVAMoveGenerator(PLAYER player)
+        MVVLVAMoveGenerator(Player player)
         {
             gen_MVVLVA_moves(player);
         }
@@ -459,17 +473,16 @@ class MVVLVAMoveGenerator
         /**
          * @return whether moves[] has element to assign to sq_i & sq_f.
          */
-        bool next(SHAPE &shape, short &sq_i, short &sq_f)
+        bool next(Shape &shape, short &sq_i, short &sq_f)
         {
             while (i_v < KING)
             {
                 while (i_a < MAX_SHAPE)
                 {
-                    short *arr = moves[i_v][i_a];
-
                     if (i + 1 < moves_sz[i_v][i_a])
                     {
-                        shape = SHAPE(i_a);
+                        shape = Shape(i_a);
+                        short *arr = moves[i_v][i_a];
                         sq_i = arr[i++];
                         sq_f = arr[i++];
                         return true;
@@ -482,7 +495,7 @@ class MVVLVAMoveGenerator
             }
             if (i + 2 < quiet_moves.size())
             {
-                shape = SHAPE(quiet_moves[i++]);
+                shape = Shape(quiet_moves[i++]);
                 sq_i = quiet_moves[i++];
                 sq_f = quiet_moves[i++];
                 return true;
@@ -501,19 +514,13 @@ class MVVLVAMoveGenerator
          */
         short moves[KING][MAX_SHAPE][MAX_2NUM_AXB] = {{{0}}}, moves_sz[KING][MAX_SHAPE] = {{0}};
         std::vector<short> quiet_moves;
-        short sq_i = 0, sq_f = 0, i_v = 0, i_a = 0, i = 0;
-        SHAPE shape_a, shape_v;
-        BoardEntry victim;
+        short sq_i = NULL, sq_f = NULL, i_v = NULL, i_a = NULL, i = NULL;
+        Shape shape_a, shape_v;
 
         inline void MVVLVA_insert()
         {
             short *my_moves = moves[QUEEN-shape_v][shape_a];
             short &my_moves_sz = moves_sz[QUEEN-shape_v][shape_a];
-            if (my_moves_sz >= MAX_2NUM_AXB)
-            {
-                std::cout << "MOVES OVERFLOW";
-                exit(1);
-            }
             my_moves[my_moves_sz++] = sq_i;
             my_moves[my_moves_sz++] = sq_f;
         }
@@ -527,15 +534,15 @@ class MVVLVAMoveGenerator
             quiet_moves[quiet_moves_sz + 2] = sq_f;
         }
 
-        void gen_MVVLVA_moves(PLAYER player)
+        void gen_MVVLVA_moves(Player player)
         {
             quiet_moves.reserve(MAX_3NUM_AXB);
-            for (short i = 0; i <= BEGIN[player][KING]; i++)
+            for (BoardEntry *attacker = board[player]; attacker <= NBRQ_END[player]; attacker++)
             {
-                sq_i = board[player][i].sq;
+                sq_i = attacker->sq;
                 if (sq_i >= 0) // if not captured
                 {
-                    shape_a = board[player][i].shape;
+                    shape_a = attacker->shape;
                     if (shape_a == PAWN)
                     {
                         short y_i = y_of(sq_i);
@@ -547,9 +554,9 @@ class MVVLVAMoveGenerator
                             for (short dx = -1; dx <= 1; dx += 2)
                             {
                                 sq_f = sq_y + dx;
-                                if (sq_f >= 0 && squares[sq_f])
+                                if (is_play_area(sq_f) && squares[sq_f])
                                 {
-                                    victim = *squares[sq_f];
+                                    BoardEntry &victim = *squares[sq_f];
                                     shape_v = victim.shape;
                                     if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
@@ -581,7 +588,7 @@ class MVVLVAMoveGenerator
                                     quiet_insert();
                                 else
                                 {
-                                    victim = *squares[sq_f];
+                                    BoardEntry &victim = *squares[sq_f];
                                     shape_v = victim.shape;
                                     if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
@@ -600,7 +607,7 @@ class MVVLVAMoveGenerator
                                     quiet_insert();
                                 else
                                 {
-                                    victim = *squares[sq_f];
+                                    BoardEntry &victim = *squares[sq_f];
                                     shape_v = victim.shape;
                                     if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
@@ -619,7 +626,7 @@ class MVVLVAMoveGenerator
                                 
                                 if (is_play_area(sq_f))
                                 {
-                                    victim = *squares[sq_f];
+                                    BoardEntry &victim = *squares[sq_f];
                                     shape_v = victim.shape;
                                     if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
@@ -636,7 +643,7 @@ class MVVLVAMoveGenerator
 
                                 if (is_play_area(sq_f))
                                 {
-                                    victim = *squares[sq_f];
+                                    BoardEntry &victim = *squares[sq_f];
                                     shape_v = victim.shape;
                                     if (can_capture(player, victim.player, shape_v))
                                         MVVLVA_insert();
@@ -651,9 +658,8 @@ class MVVLVAMoveGenerator
 
 /**
  * @return whether all entries on the path are empty.
- * IMPORTANT: dx, dy are absolute.
  */
-inline bool is_path_clear(short sq_i, short sq_f, short dx, short dy)
+inline bool is_path_clear(short sq_i, short sq_f, unsigned short dx, unsigned short dy)
 {
     short v = (sq_f - sq_i) / std::max(dx, dy);
     for (short sq = sq_i + v; sq != sq_f; sq += v)
@@ -667,19 +673,16 @@ inline bool is_path_clear(short sq_i, short sq_f, short dx, short dy)
 /**
  * @return whether the given square is currently attacked by the enemy of the given player.
  */
-bool is_checked(PLAYER player)
+bool is_checked(Player player)
 {
-    short i = 0, dx = 0, dy = 0, y = 0, sq_a = 0, sq_v = board[player][BEGIN[player][KING]].sq;
-
-    // check for enemy pawns by being a pawn and check where I can capture
-    y = y_of(sq_v);
-    if (1 <= y && y <= 6)
+    // check for enemy pawns by posing as pawn and check where I can capture
+    short dx = NULL, dy = NULL, sq_a = NULL, sq_v = NBRQ_END[player]->sq, y = y_of(sq_v);
     {
         short sq_y = sq_v + rel_foward[player];
         for (dx = -1; dx <= 1; dx += 2)
         {
             sq_a = sq_y + dx;
-            if (sq_a >= 0 && squares[sq_a])
+            if (is_play_area(sq_a) && squares[sq_a])
             {
                 BoardEntry &attacker = *squares[sq_a];
                 if (attacker.player != player && attacker.shape == PAWN)
@@ -688,60 +691,30 @@ bool is_checked(PLAYER player)
         }
     }
 
-    // check for enemy knights by iterating over all enemy knights
-    for (i = BEGIN[!player][KNIGHT]; i < BEGIN[!player][BISHOP]; i++)
+    // check for enemy KNIGHT, BISHOP, ROOK, QUEEN (NBRQ) by iterating over each piece
+    // no check for enemy KING since KING cannot attack KING
+    Shape shape_a;
+    for (BoardEntry *attacker = NBRQ_BEGIN[!player]; attacker < NBRQ_END[!player]; attacker++)
     {
-        sq_a = board[!player][i].sq;
-        if (sq_a >= 0) // if not captured
-        {
-            dx = abs(x_of(sq_a) - x_of(sq_v));
-            dy = abs(y_of(sq_a) - y_of(sq_v));
-            if ((dx == 1 && dy == 2) || (dx == 2 && dy == 1))
-                return true;
-        }
-    }
-
-    // check for enemy bishops
-    for (i = BEGIN[!player][BISHOP]; i < BEGIN[!player][ROOK]; i++)
-    {
-        sq_a = board[!player][i].sq;
+        sq_a = attacker->sq;
+        shape_a = attacker->shape;
         if (sq_a >= 0)
         {
             dx = abs(x_of(sq_a) - x_of(sq_v));
             dy = abs(y_of(sq_a) - y_of(sq_v));
-            if (dx == dy && is_path_clear(sq_v, sq_a, dx, dy))
+            if (shape_a == KNIGHT && ((dx == 1 && dy == 2) || (dx == 2 && dy == 1)))
+                return true;
+
+            else if (shape_a == BISHOP && dx == dy && is_path_clear(sq_v, sq_a, dx, dy))
+                return true;
+
+            else if (shape_a == ROOK && (dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
+                return true;
+
+            else if (shape_a == QUEEN && (dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
                 return true;
         }
     }
-
-    // check for enemy rooks
-    for (i = BEGIN[!player][ROOK]; i < BEGIN[!player][QUEEN]; i++)
-    {
-        sq_a = board[!player][i].sq;
-        if (sq_a >= 0)
-        {
-            dx = abs(x_of(sq_a) - x_of(sq_v));
-            dy = abs(y_of(sq_a) - y_of(sq_v));
-            if ((dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
-                return true;
-        }
-    }
-
-    // check for enemy queen
-    for (i = BEGIN[!player][QUEEN]; i < BEGIN[!player][KING]; i++)
-    {
-        sq_a = board[!player][i].sq;
-        if (sq_a >= 0)
-        {
-            dx = abs(x_of(sq_a) - x_of(sq_v));
-            dy = abs(y_of(sq_a) - y_of(sq_v));
-            if ((dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_v, sq_a, dx, dy))
-                return true;
-        }
-    }
-
-    // no check for enemy king since king cannot attack king
-
     return false;
 }
 
@@ -749,20 +722,20 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
 {
     const char char_of[MAX_PLAYER][MAX_SHAPE] = {
         { 'p', 'n', 'b', 'r', 'q', 'k' },
-        { 'P', 'N', 'B', 'R', 'Q', 'K' },
+        { 'P', 'N', 'B', 'R', 'Q', 'K' }
     };
     const char TAB[4] = "   ";
     if (has_t_table)
     {
         std::cout << "Transposition Table:" << std::endl;
-        short i = 0;
+        short i = NULL;
         for (TtableEntry &t_entry : t_table)
         {
             if (i < 10)
             {
                 if (t_entry.hash)
                 {
-                    std::cout << TAB << t_entry.hash << ", " << t_entry.score << ", " << t_entry.phase << std::endl;
+                    std::cout << TAB << t_entry.hash << ", " << t_entry.score << ", " << t_entry.depth_sum << std::endl;
                     i++;
                 }
             }
@@ -777,21 +750,20 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
 
     if (has_index)
     {
-        std::cout << "Indexes: " << std::endl << TAB;
+        std::cout << "NBRQ Indexes: " << std::endl << TAB;
         for (short player = BLACK; player <= WHITE; player++)
         {
-            for (short i = 0; i <= BEGIN[player][KING]; i++)
+            for (BoardEntry *piece = NBRQ_BEGIN[player]; piece < NBRQ_END[player]; piece++)
             {
-                BoardEntry &entry = board[player][i];
-                std::cout << '[' << char_of[player][entry.shape] << "]=";
-                std::cout << entry.sq << ", ";
+                std::cout << '[' << char_of[player][piece->shape] << "]=" << piece->sq << ", ";
             }
         }
         std::cout << std::endl;
     }
 
     if (has_phase)
-        std::cout << "Distance from endgame:" << std::endl << TAB << phase << '/' << MAX_PHASE << std::endl;
+        std::cout << "Distance from endgame:" << std::endl << TAB << phase << '/' << MAX_PHASE << std::endl << 
+            "Total half-moves:" << std::endl << TAB << move_count << std::endl;
 
     if (has_worth)
     {
@@ -822,7 +794,7 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_index =
 
             BoardEntry *ptr = squares[sq];
             if (ptr)
-                std::cout << std::setw(3) << char_of[(*ptr).player][(*ptr).shape];
+                std::cout << std::setw(3) << char_of[ptr->player][ptr->shape];
             else
                 std::cout << std::setw(3) << '_';
         }
@@ -835,24 +807,22 @@ inline short static_eval()
     short score_opening = worth_opening[MAXER] - worth_opening[MINER],
           score_endgame = worth_endgame[MAXER] - worth_endgame[MINER];
 
-    return (score_endgame - (phase/MAX_PHASE)*(score_endgame - score_opening)); // linear interpolation
+    return (score_endgame - float(std::min(phase, MAX_PHASE))/MAX_PHASE*(score_endgame - score_opening)); // linear interpolation
 }
 
 inline bool is_repeat(unsigned long long hash, short depth)
 {
-    if (depth >= 4 && hash == hash_history[depth-4])
-        return true;
-    else
-        return false;
+    return (depth >= 3 && hash == hash_history[depth-3]); // experimentally determined no need to check higher depths
 }
 
-inline void into_t_table(TtableEntry &t_entry, unsigned long long hash, short score)
+inline void into_t_table(TtableEntry &t_entry, unsigned long long hash, short score, short depth)
 {
-    if (phase <= t_entry.phase) // if bucket collision, keep the one closer to endgame
+    short depth_sum = move_count + depth;
+    if (depth_sum >= t_entry.depth_sum) // if bucket collision, keep the more recent and deeper search
     {
         t_entry.hash = hash;
         t_entry.score = score;
-        t_entry.phase = phase;
+        t_entry.depth_sum = depth_sum;
     }
 }
 
@@ -864,7 +834,7 @@ inline void into_t_table(TtableEntry &t_entry, unsigned long long hash, short sc
  *      n = SHRT_MAX if check/stalemated by MAXER.
  *      n = SHRT_MIN if check/stalemated by MINER.
  */
-short eval(unsigned long long hash, PLAYER player, short depth, short alpha, short beta, bool is_NM_eval, bool is_PV_node)
+short eval(unsigned long long hash, Player player, short depth, short alpha, short beta, bool is_NM_eval, bool is_PV_node)
 {
     TtableEntry &t_entry = t_table[hash % TABLE_SZ];
     if (hash == t_entry.hash)
@@ -876,7 +846,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
     hash_history[depth] = hash;
 
     // Null-Move (NM) Pruning
-    short child_score = 0;
+    short child_score = NULL;
     if (!is_NM_eval && !is_PV_node && depth <= MAX_NM_DEPTH && phase > 0 && !is_checked(player))
     {
         if (player == MAXER)
@@ -884,7 +854,7 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
             child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, beta-1, beta, true, is_PV_node);
             if (child_score >= beta)
             {
-                hash_history[depth] = 0;
+                hash_history[depth] = NULL;
                 return beta;
             }
         }
@@ -893,28 +863,30 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
             child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, is_PV_node);
             if (child_score <= alpha)
             {
-                hash_history[depth] = 0;
+                hash_history[depth] = NULL;
                 return alpha;
             }
         }
     }
 
-    short score = (player == MAXER) ? SHRT_MIN : SHRT_MAX, sq_i = 0, sq_f = 0;
-    unsigned long long child_hash = 0;
-    SHAPE shape;
+    bool is_promote = false;
+    short score = (player == MAXER ? SHRT_MIN : SHRT_MAX), sq_i = NULL, sq_f = NULL;
+    unsigned long long child_hash = NULL;
+    Shape shape;
     BoardEntry *sq_f_ptr;
 
     MVVLVAMoveGenerator Moves(player);
     while (Moves.next(shape, sq_i, sq_f))
     {
         sq_f_ptr = squares[sq_f];
-        child_hash = move(hash, player, shape, sq_i, sq_f);
+        child_hash = hash;
+        move(child_hash, is_promote, player, shape, sq_i, sq_f);
 
         if (!is_repeat(child_hash, depth) && !is_checked(player))
         {
             child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, is_PV_node);
-            unmove(player, shape, sq_i, sq_f, sq_f_ptr);
             is_PV_node = false;
+            unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
             
             if (player == MAXER)
             {
@@ -932,117 +904,107 @@ short eval(unsigned long long hash, PLAYER player, short depth, short alpha, sho
             }
             if (alpha >= beta)
             {
-                into_t_table(t_entry, hash, score);
-                hash_history[depth] = 0;
+                into_t_table(t_entry, hash, score, depth);
+                hash_history[depth] = NULL;
                 return score;
             }
         }
         else
-            unmove(player, shape, sq_i, sq_f, sq_f_ptr);
+            unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
     }
-    into_t_table(t_entry, hash, score);
-    hash_history[depth] = 0;
+    into_t_table(t_entry, hash, score, depth);
+    hash_history[depth] = NULL;
     return score;
 }
 
 /**
  * Similar to eval().
- * @return 0: bot has move(s). 1: bot is checkmated. 2: bot is stalemated.
+ * @return -1: bot lost. 0: bot has move(s). 1: bot won.
  */
-short bot_move(PLAYER player)
+short bot_move()
 {
-    bool is_PV_node = true;
-    short child_score = 0, best_sq_i = 0, best_sq_f = 0, score = (player == MAXER) ? SHRT_MIN : SHRT_MAX, sq_i = 0, sq_f = 0;
-    unsigned long long child_hash = 0;
-    SHAPE best_shape, shape;
+    bool is_PV_node = true, is_promote = false;
+    short child_score = NULL, best_sq_i = NULL, best_sq_f = NULL, score = (BOT == MAXER ? SHRT_MIN : SHRT_MAX), sq_i = NULL, sq_f = NULL;
+    unsigned long long child_hash = NULL;
+    Shape best_shape, shape;
     BoardEntry *sq_f_ptr;
 
     hash_history[0] = hash;
 
     std::cout << "Possible {square_i, square_f, score}:" << std::endl;
-    MVVLVAMoveGenerator Moves(player);
+    MVVLVAMoveGenerator Moves(BOT);
     while (Moves.next(shape, sq_i, sq_f))
     {
         sq_f_ptr = squares[sq_f];
-        child_hash = move(hash, player, shape, sq_i, sq_f);
+        child_hash = hash;
+        move(child_hash, is_promote, BOT, shape, sq_i, sq_f);
         
-        if (!is_checked(player))
+        if (!is_checked(BOT))
         {
-            child_score = eval(child_hash, !player, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node);
-            unmove(player, shape, sq_i, sq_f, sq_f_ptr);
+            child_score = eval(child_hash, HUMAN, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node);
             is_PV_node = false;
-            std::cout << "{" << sq_i << ", " << sq_f << ", " << child_score << "}, " << std::endl;
+            unmove(is_promote, BOT, shape, sq_i, sq_f, sq_f_ptr);
+            std::cout << "{" << sq_i << ", " << sq_f << ", " << child_score << "}," << std::endl;
         
-            if (player == MAXER && child_score > score)
+            if (BOT == MAXER && child_score > score)
             {
                 best_shape = shape;
                 best_sq_i = sq_i;
                 best_sq_f = sq_f;
                 score = child_score;
+
+                if (child_score == SHRT_MAX)
+                    break;
             }
-            else if (player == MINER && child_score < score)
+            else if (BOT == MINER && child_score < score)
             {
                 best_shape = shape;
                 best_sq_i = sq_i;
                 best_sq_f = sq_f;
                 score = child_score;
+
+                if (child_score == SHRT_MIN)
+                    break;
             }
         }
         else
-            unmove(player, shape, sq_i, sq_f, sq_f_ptr);
+            unmove(is_promote, BOT, shape, sq_i, sq_f, sq_f_ptr);
     }
-    std::cout << std::endl;
-    if (score != SHRT_MIN && score != SHRT_MAX)
-    {
-        std::cout << "Chosen move: " << best_sq_i << " to " << best_sq_f << std::endl;
-        hash = move(hash, player, best_shape, best_sq_i, best_sq_f);
-        return 0;
-    }
-    else if (is_checked(player)) // checkmated
+    if (score == (BOT == MAXER ? SHRT_MIN : SHRT_MAX))
+        return -1;
+    
+    std::cout << std::endl << "Chosen: {" << best_sq_i << ", " << best_sq_f << ", " << score << "}" << std::endl;
+    move(hash, is_promote, BOT, best_shape, best_sq_i, best_sq_f);
+    move_count++;
+    if (score == (BOT == MAXER ? SHRT_MAX : SHRT_MIN))
         return 1;
-
-    else
-        return 2;
+    return 0;
 }
 
 /**
  * @return whether move is valid.
- * 0: valid. 1: illegal move vector. 2: empty initial square. 3: outside play area. 4: impersonating bot. 5: illegal capture, 6: blocked path, 7: checked
+ * 0: valid. 1: illegal move vector. 2: outside play area. 3: empty initial square. 4: impersonating bot. 5: illegal capture, 6: blocked path, 7: will be checked
  */
 short validate(short sq_i, short sq_f)
 {
-    BoardEntry *sq_i_ptr = squares[sq_i], *sq_f_ptr = squares[sq_f];
-    if (!sq_i_ptr)
+    if (!is_play_area(sq_i) || !is_play_area(sq_f))
         return 2;
 
-    if (!is_play_area(sq_i) || !is_play_area(sq_f))
+    BoardEntry *sq_i_ptr = squares[sq_i], *sq_f_ptr = squares[sq_f];
+    if (!sq_i_ptr)
         return 3;
 
-    PLAYER player = (*sq_i_ptr).player;
-    SHAPE shape = (*sq_i_ptr).shape;
-    short dx = abs(x_of(sq_f) - x_of(sq_i)),
-          dy = abs(y_of(sq_f) - y_of(sq_i));
+    Player player = sq_i_ptr->player;
+    Shape shape = sq_i_ptr->shape;
 
     if (player == BOT)
         return 4;
 
-    if (sq_f_ptr && !can_capture(player, (*sq_f_ptr).player, (*sq_f_ptr).shape))
+    else if (sq_f_ptr && !can_capture(player, sq_f_ptr->player, sq_f_ptr->shape))
         return 5;
 
-    if (shape == KING && std::max(dx, dy) > 1)
-        return 1;
-
-    if (shape == KNIGHT && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
-        return 1;
-
-    if (shape == QUEEN && dx && dy && dx != dy)
-        return 1; 
-
-    if (shape == ROOK && dx && dy)
-        return 1;
-    
-    if (shape == BISHOP && dx != dy)
-        return 1;
+    short dx = abs(x_of(sq_f) - x_of(sq_i)),
+          dy = abs(y_of(sq_f) - y_of(sq_i));
 
     if (shape == PAWN)
     {
@@ -1054,25 +1016,37 @@ short validate(short sq_i, short sq_f)
             if (dx != 0)
                 return 1;
 
-            if (dy > 1 + (y_of(sq_i) == 1 || y_of(sq_i) == 6)) // if pawn at starting line: dy > 1+(1); else: dy>1+(0)
+            if (dy > 1 + (y_of(sq_i) == 1 || y_of(sq_i) == 6)) // if pawn at starting line dy > 1+(1), else dy>1+(0)
                 return 1;
         }
         else if (dx != 1 || dy != 1) // && not empty
             return 1;
     }
+    else if (shape == KNIGHT && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
+        return 1;
 
-    if (shape != KING && shape != KNIGHT && !is_path_clear(sq_i, sq_f, dx, dy))
+    else if (shape == BISHOP && dx != dy)
+        return 1;
+
+    else if (shape == ROOK && dx && dy)
+        return 1;
+
+    else if (shape == QUEEN && dx && dy && dx != dy)
+        return 1;
+
+    else if (shape == KING && std::max(dx, dy) > 1)
+        return 1;
+
+    if (shape != KNIGHT && shape != KING && !is_path_clear(sq_i, sq_f, dx, dy))
         return 6;
 
-    
-    // check checked
-    move(hash, player, shape, sq_i, sq_f);
+    unmove(false, player, shape, sq_f, sq_i, nullptr); // here unmove() is used for MOVE without hashing & promotion
     if (is_checked(player))
     {
-        unmove(player, shape, sq_i, sq_f, sq_f_ptr);
+        unmove(false, player, shape, sq_i, sq_f, sq_f_ptr);
         return 7;
     }
-    unmove(player, shape, sq_i, sq_f, sq_f_ptr);
+    unmove(false, player, shape, sq_i, sq_f, sq_f_ptr);
 
     // if all valid
     return 0;
@@ -1080,7 +1054,8 @@ short validate(short sq_i, short sq_f)
 
 void console_play()
 {
-    short sq_i = 0, sq_f = 0, invalid = 0;
+    bool is_promote = NULL;
+    short sq_i = NULL, sq_f = NULL, invalid = NULL;
     while (true)
     {
         out_board(true, true, true, true, true);
@@ -1090,27 +1065,26 @@ void console_play()
             std::cin >> sq_i >> sq_f;
             invalid = validate(sq_i, sq_f);
             if (invalid)
-            {
-                if (invalid == 7)
-                {
-                    std::cout << "You lost!" << std::endl;
-                    exit(0);
-                }
-                else
-                    std::cout << "Invalid move, broken rule #" << invalid << std::endl;
-            }
+                std::cout << "Invalid move, broken rule #" << invalid << std::endl;
         }
         while (invalid);
-        hash = move(hash, HUMAN, (*squares[sq_i]).shape, sq_i, sq_f);
+        move(hash, is_promote, HUMAN, squares[sq_i]->shape, sq_i, sq_f);
+        if (is_promote)
+            std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
+        move_count++;
         std::cout << std::endl;
 
-        short outcome = bot_move(BOT);
-        if (outcome == 1)
+        short outcome = bot_move();
+        if (outcome == -1)
+        {
             std::cout << "You won!" << std::endl;
-        else if (outcome == 2)
-            std::cout << "Ended in draw." << std::endl;
-        if (outcome)
             break;
+        }
+        else if (outcome == 1)
+        {
+            std::cout << "You lost!" << std::endl;
+            break;
+        }
         std::cout << std::endl;
     }
 }
