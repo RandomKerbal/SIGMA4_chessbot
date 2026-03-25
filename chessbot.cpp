@@ -1077,11 +1077,13 @@ void console_play()
         short outcome = bot_move();
         if (outcome == -1)
         {
+            out_board(true, true, true, true, true);
             std::cout << "You won!" << std::endl;
             break;
         }
         else if (outcome == 1)
         {
+            out_board(true, true, true, true, true);
             std::cout << "You lost!" << std::endl;
             break;
         }
