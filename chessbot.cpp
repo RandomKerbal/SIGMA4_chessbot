@@ -696,7 +696,7 @@ inline short worst_score(Player player)
 }
 
 /**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Threefold Repetition Check
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Repetition Check
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n ∈ (SHRT_MIN, 0) U (0, SHRT_MAX) if over MAX_DEPTH.
@@ -705,8 +705,11 @@ inline short worst_score(Player player)
  */
 short eval(unsigned long long hash, Player player, short depth, short alpha, short beta, bool is_NM_eval, bool is_PV_node)
 {
-    if (depth == MAX_DEPTH)
+    if (depth > MAX_DEPTH)
         return static_eval();
+
+    if (depth == MAX_DEPTH)
+        eval()
 
     move_history[depth] = hash;
 
@@ -740,7 +743,7 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
     BoardEntry *sq_f_ptr;
 
     MVVLVAMoveGenerator moves(player);
-    while (moves.next())
+    while (moves.next(only_capture))
     {
         child_hash = hash;
         child_score = NULL;
