@@ -4,7 +4,7 @@
 #include <iomanip>
 #include <vector>
 
-const short MAX_DEPTH = 7;
+const short MAX_DEPTH = 6;
 const short NM_R = 3,
             NM_DEPTH_INC = NM_R + 1,
             MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
@@ -952,13 +952,15 @@ short validate(short sq_i, short sq_f)
     if (shape != KNIGHT && shape != KING && !is_path_clear(sq_i, sq_f, dx, dy))
         return 6;
 
-    unmove(false, player, shape, sq_f, sq_i, nullptr); // here unmove() is used for MOVE without hashing & promotion
+    bool is_promote = NULL;
+    unsigned long long _ = NULL;
+    move(_, is_promote, player, shape, sq_i, sq_f);
     if (is_checked(player))
     {
-        unmove(false, player, shape, sq_i, sq_f, sq_f_ptr);
+        unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
         return 7;
     }
-    unmove(false, player, shape, sq_i, sq_f, sq_f_ptr);
+    unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
 
     // if all valid
     return 0;
