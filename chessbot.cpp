@@ -679,7 +679,7 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
     if (player == MAXER)
     {
         if (score >= beta)
-            return beta;
+            return score;
 
         if (score > alpha)
             alpha = score;
@@ -687,7 +687,7 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
     else
     {
         if (score <= alpha)
-            return alpha;
+            return score;
 
         if (score < beta)
             beta = score;
@@ -732,12 +732,11 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
             }
             if (alpha >= beta)
             {
-                into_t_table(hash, score, 0); // store depth as 0 to ensure overwrite by proper search
+                into_t_table(hash, score, SHRT_MIN); // store depth as -inf to ensure overwrite by proper search
                 return score;
             }
         }
     }
-    into_t_table(hash, score, 0);
     return score;
 }
 
