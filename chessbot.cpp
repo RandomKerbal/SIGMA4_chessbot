@@ -675,7 +675,6 @@ inline short worst_score(Player player)
 
 short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
 {
-    bool is_promote = NULL;
     short score = static_eval();
     if (player == MAXER)
     {
@@ -694,6 +693,7 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
             beta = score;
     }
 
+    bool is_promote = NULL;
     short child_score = NULL;
     unsigned long long child_hash = NULL;
     BoardEntry *sq_f_ptr;
