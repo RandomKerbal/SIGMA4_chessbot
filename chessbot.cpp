@@ -758,7 +758,7 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
 
     // Null-Move Pruning
     short child_score = NULL;
-    if (depth <= MAX_NM_DEPTH && !is_NM_eval && !is_PV_node && phase && !is_checked(player))
+    if (move_count > 2 && depth <= MAX_NM_DEPTH && !is_NM_eval && !is_PV_node && phase && !is_checked(player))
     {
         if (player == MAXER)
         {
