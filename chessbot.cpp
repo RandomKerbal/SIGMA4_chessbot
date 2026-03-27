@@ -677,10 +677,22 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
 {
     bool is_promote = NULL;
     short score = static_eval();
-    if (score >= beta)
-        return beta;
-    if (score > alpha)
-        alpha = score;
+    if (player == MAXER)
+    {
+        if (score >= beta)
+            return beta;
+
+        if (score > alpha)
+            alpha = score;
+    }
+    else
+    {
+        if (score <= alpha)
+            return alpha;
+
+        if (score < beta)
+            beta = score;
+    }
 
     short child_score = NULL;
     unsigned long long child_hash = NULL;
