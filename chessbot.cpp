@@ -105,14 +105,14 @@ const size_t TABLE_SZ = 1 << 22; // must be power of 2
 struct TtableEntry {
     unsigned long long hash;
     short score;
-    short depth_sum;
+    short full_depth;
 
-    TtableEntry () : hash(0), score(0), depth_sum(0)
+    TtableEntry () : hash(0), score(0), full_depth(0)
     {}
 };
 TtableEntry t_table[TABLE_SZ]; // Transposition Table
 unsigned long long move_history[MAX_DEPTH] = {0};
-short move_count = NULL;
+short root_depth = NULL;
 
 short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
 short phase = NULL; // sum of SHAPE_PHASE of all current pieces
@@ -592,7 +592,7 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_phase =
             {
                 if (entry.hash)
                 {
-                    std::cout << TAB << entry.hash << ", " << entry.score << ", " << entry.depth_sum << std::endl;
+                    std::cout << TAB << entry.hash << ", " << entry.score << ", " << entry.full_depth << std::endl;
                     i++;
                 }
             }
@@ -607,7 +607,7 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_phase =
 
     if (has_phase)
         std::cout << "Distance from endgame:" << std::endl << TAB << phase << '/' << MAX_PHASE << std::endl << 
-            "Total half-moves:" << std::endl << TAB << move_count << std::endl;
+            "Total half-moves:" << std::endl << TAB << root_depth << std::endl;
 
     if (has_psv)
     {
@@ -659,15 +659,14 @@ inline bool is_repeat(unsigned long long hash, short depth)
     return (depth >= 3 && hash == move_history[depth-3]); // experimentally determined no need to check higher depths
 }
 
-inline void into_t_table(unsigned long long hash, short score, short depth)
+inline void into_t_table(unsigned long long hash, short score, short full_depth)
 {
     TtableEntry &entry = t_table[hash % TABLE_SZ];
-    short depth_sum = move_count + depth;
-    if (depth_sum >= entry.depth_sum) // if bucket collision, keep the more recent and deeper search
+    if (full_depth >= entry.full_depth) // if bucket collision, keep the more recent and deeper search
     {
         entry.hash = hash;
         entry.score = score;
-        entry.depth_sum = depth_sum;
+        entry.full_depth = full_depth;
     }
 }
 
@@ -765,7 +764,7 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
 
     // Null-Move Pruning
     short child_score = NULL;
-    if (move_count > 2 && depth <= MAX_NM_DEPTH && !is_NM_eval && !is_PV_node && phase && !is_checked(player))
+    if (root_depth > 2 && depth <= MAX_NM_DEPTH && !is_NM_eval && !is_PV_node && phase && !is_checked(player))
     {
         if (player == MAXER)
         {
@@ -788,7 +787,7 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
     }
 
     bool is_promote = NULL, has_child_score = NULL;
-    short score = worst_score(player);
+    short score = worst_score(player), full_depth = NULL;
     unsigned long long child_hash = NULL;
     BoardEntry *sq_f_ptr;
     MVVLVAMoveGenerator moves(player, false);
@@ -800,7 +799,8 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
         move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
 
         TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
-        if (child_hash == child_entry.hash && child_entry.depth_sum > 0) // depth_sum > 0 means not from QS
+        full_depth = root_depth + depth;
+        if (child_hash == child_entry.hash && child_entry.full_depth >= full_depth)
         {
             child_score = child_entry.score;
             has_child_score = true;
@@ -832,13 +832,13 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
             }
             if (alpha >= beta)
             {
-                into_t_table(hash, score, depth);
+                into_t_table(hash, score, full_depth);
                 move_history[depth] = NULL;
                 return score;
             }
         }
     }
-    into_t_table(hash, score, depth);
+    into_t_table(hash, score, full_depth);
     move_history[depth] = NULL;
     return score;
 }
@@ -895,10 +895,10 @@ short bot_move()
     }
 
     if (score == worst_score(BOT))
-        return -1;    
+        return -1;
     std::cout << std::endl << "Chosen: {" << best_sq_i << ", " << best_sq_f << ", " << score << "}" << std::endl;
     move(hash, is_promote, BOT, best_shape, best_sq_i, best_sq_f);
-    move_count++;
+    root_depth++;
     if (score == worst_score(HUMAN))
         return 1;
     return 0;
@@ -996,7 +996,7 @@ void console_play()
         move(hash, is_promote, HUMAN, squares[sq_i]->shape, sq_i, sq_f);
         if (is_promote)
             std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
-        move_count++;
+        root_depth++;
         std::cout << std::endl;
 
         short outcome = bot_move();
