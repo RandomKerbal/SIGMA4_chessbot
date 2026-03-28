@@ -651,7 +651,7 @@ inline short static_eval()
     short score_opening = psv_opening[MAXER] - psv_opening[MINER],
           score_endgame = psv_endgame[MAXER] - psv_endgame[MINER];
 
-    return (score_endgame - float(std::min(phase, MAX_PHASE))/MAX_PHASE*(score_endgame - score_opening)); // linear interpolation
+    return score_endgame - (score_endgame - score_opening)*std::min(phase, MAX_PHASE)/MAX_PHASE; // linear interpolation
 }
 
 inline bool is_repeat(unsigned long long hash, short depth)
@@ -696,7 +696,7 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
             beta = score;
     }
 
-    bool is_promote = NULL;
+    bool is_promote = NULL, has_child_score = NULL;
     short child_score = NULL;
     unsigned long long child_hash = NULL;
     BoardEntry *sq_f_ptr;
@@ -704,20 +704,25 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
     while (moves.next())
     {
         child_hash = hash;
-        child_score = NULL;
+        has_child_score = false;
         sq_f_ptr = squares[moves.sq_f];
         move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
 
         TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
         if (child_hash == child_entry.hash)
+        {
             child_score = child_entry.score;
-
+            has_child_score = true;
+        }
         else if (!is_checked(player))
+        {
             child_score = QS_eval(child_hash, !player, alpha, beta);
+            has_child_score = true;
+        }
 
         unmove(is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
-        if (child_score)
+        if (has_child_score)
         {
             if (player == MAXER)
             {
@@ -782,7 +787,7 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
         }
     }
 
-    bool is_promote = NULL;
+    bool is_promote = NULL, has_child_score = NULL;
     short score = worst_score(player);
     unsigned long long child_hash = NULL;
     BoardEntry *sq_f_ptr;
@@ -790,23 +795,26 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
     while (moves.next())
     {
         child_hash = hash;
-        child_score = NULL;
+        has_child_score = false;
         sq_f_ptr = squares[moves.sq_f];
         move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
 
         TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
         if (child_hash == child_entry.hash && child_entry.depth_sum > 0) // depth_sum > 0 means not from QS
+        {
             child_score = child_entry.score;
-
+            has_child_score = true;
+        }
         else if (!is_repeat(child_hash, depth) && !is_checked(player))
         {
             child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, is_PV_node);
+            has_child_score = true;
             is_PV_node = false;
         }
 
         unmove(is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
-        if (child_score)
+        if (has_child_score)
         {
             if (player == MAXER)
             {
@@ -843,7 +851,7 @@ short bot_move()
 {
     move_history[0] = hash;
 
-    bool is_PV_node = true, is_promote = NULL;
+    bool is_PV_node = true, is_promote = NULL, has_child_score = NULL;
     short child_score = NULL, best_sq_i = NULL, best_sq_f = NULL, score = worst_score(BOT);
     unsigned long long child_hash = NULL;
     Shape best_shape;
@@ -853,19 +861,20 @@ short bot_move()
     while (moves.next() && score != worst_score(HUMAN))
     {
         child_hash = hash;
-        child_score = NULL;
+        has_child_score = false;
         sq_f_ptr = squares[moves.sq_f];
         move(child_hash, is_promote, BOT, moves.shape_a, moves.sq_i, moves.sq_f);
         
         if (!is_checked(BOT))
         {
             child_score = eval(child_hash, HUMAN, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node);
+            has_child_score = true;
             is_PV_node = false;
         }
 
         unmove(is_promote, BOT, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
     
-        if (child_score)
+        if (has_child_score)
         {
             std::cout << "{" << moves.sq_i << ", " << moves.sq_f << ", " << child_score << "}," << std::endl;
             if (BOT == MAXER && child_score > score)
