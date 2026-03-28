@@ -105,9 +105,9 @@ const size_t TABLE_SZ = 1 << 22; // must be power of 2
 struct TtableEntry {
     unsigned long long hash;
     short score;
-    short full_depth;
+    short game_depth;
 
-    TtableEntry () : hash(0), score(0), full_depth(0)
+    TtableEntry () : hash(0), score(0), game_depth(0)
     {}
 };
 TtableEntry t_table[TABLE_SZ]; // Transposition Table
@@ -592,7 +592,7 @@ void out_board(bool has_t_table = false, bool has_hash = false, bool has_phase =
             {
                 if (entry.hash)
                 {
-                    std::cout << TAB << entry.hash << ", " << entry.score << ", " << entry.full_depth << std::endl;
+                    std::cout << TAB << entry.hash << ", " << entry.score << ", " << entry.game_depth << std::endl;
                     i++;
                 }
             }
@@ -659,14 +659,14 @@ inline bool is_repeat(unsigned long long hash, short depth)
     return (depth >= 3 && hash == move_history[depth-3]); // experimentally determined no need to check higher depths
 }
 
-inline void into_t_table(unsigned long long hash, short score, short full_depth)
+inline void into_t_table(unsigned long long hash, short score, short game_depth)
 {
     TtableEntry &entry = t_table[hash % TABLE_SZ];
-    if (full_depth >= entry.full_depth) // if bucket collision, keep the more recent and deeper search
+    if (game_depth >= entry.game_depth) // if bucket collision, keep the more recent and deeper search
     {
         entry.hash = hash;
         entry.score = score;
-        entry.full_depth = full_depth;
+        entry.game_depth = game_depth;
     }
 }
 
@@ -787,7 +787,7 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
     }
 
     bool is_promote = NULL, has_child_score = NULL;
-    short score = worst_score(player), full_depth = NULL;
+    short score = worst_score(player), game_depth = NULL;
     unsigned long long child_hash = NULL;
     BoardEntry *sq_f_ptr;
     MVVLVAMoveGenerator moves(player, false);
@@ -799,8 +799,8 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
         move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
 
         TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
-        full_depth = root_depth + depth;
-        if (child_hash == child_entry.hash && child_entry.full_depth >= full_depth)
+        game_depth = root_depth + depth;
+        if (child_hash == child_entry.hash && child_entry.game_depth >= game_depth)
         {
             child_score = child_entry.score;
             has_child_score = true;
@@ -832,13 +832,13 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
             }
             if (alpha >= beta)
             {
-                into_t_table(hash, score, full_depth);
+                into_t_table(hash, score, game_depth);
                 move_history[depth] = NULL;
                 return score;
             }
         }
     }
-    into_t_table(hash, score, full_depth);
+    into_t_table(hash, score, game_depth);
     move_history[depth] = NULL;
     return score;
 }
