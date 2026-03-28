@@ -11,7 +11,6 @@ const short NM_R = 3,
 const short MAX_NUM_AXB = 26,
             MAX_2NUM_AXB = MAX_NUM_AXB * 2,
             MAX_3NUM_AXB = MAX_NUM_AXB * 3;
-const short DELTA_MARGIN = 200;
 
 enum Player: short {
     BLACK = 0, WHITE = 1,
