@@ -679,21 +679,26 @@ inline short worst_score(Player player)
 short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
 {
     short score = static_eval();
-    if (player == MAXER)
-    {
-        if (score >= beta)
-            return score;
 
-        if (score > alpha)
-            alpha = score;
-    }
-    else
+    // stand pat
+    if (!is_checked(player))
     {
-        if (score <= alpha)
-            return score;
+        if (player == MAXER)
+        {
+            if (score >= beta)
+                return score;
 
-        if (score < beta)
-            beta = score;
+            if (score > alpha)
+                alpha = score;
+        }
+        else
+        {
+            if (score <= alpha)
+                return score;
+
+            if (score < beta)
+                beta = score;
+        }
     }
 
     bool is_promote = NULL, has_child_score = NULL;
@@ -749,7 +754,7 @@ short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
 }
 
 /**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Repetition Check + Quiescence Search
+ * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Repetition Check + Quiescence Search + Standing Pat
  * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
  * @return
  *      n ∈ (SHRT_MIN, 0) U (0, SHRT_MAX) if over MAX_DEPTH.
