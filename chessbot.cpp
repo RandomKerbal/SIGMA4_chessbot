@@ -229,31 +229,28 @@ inline void del_psv(Player player, Shape shape, short sq)
 
 inline void move(unsigned long long &hash, bool &is_promote, Player player, Shape shape, short sq_i, short sq_f)
 {
-    // capture
-    if (squares[sq_f])
-    {
-        Player del_player = squares[sq_f]->player;
-        Shape del_shape = squares[sq_f]->shape;
+    BoardEntry *sq_i_ptr = squares[sq_i];
+    BoardEntry *sq_f_ptr = squares[sq_f];
 
-        squares[sq_f]->sq -= AREA; // move sq outside board
+    // capture
+    if (sq_f_ptr)
+    {
+        Player del_player = sq_f_ptr->player;
+        Shape del_shape = sq_f_ptr->shape;
+
+        sq_f_ptr->sq -= AREA; // move sq outside board
         phase -= SHAPE_PHASE[del_shape];
         del_psv(del_player, del_shape, sq_f);
         hash ^= ZTABLE[del_player][del_shape][sq_f];
     }
-
-    // add to final square
-    squares[sq_f] = squares[sq_i];
-    squares[sq_f]->sq = sq_f;
-
-    // remove from initial square
-    squares[sq_i] = nullptr;
+    sq_i_ptr->sq = sq_f;
     del_psv(player, shape, sq_i);
     hash ^= ZTABLE[player][shape][sq_i] ^ Z_IS_BLACK;
 
     // promotion
     if (shape == PAWN && (sq_f < WIDTH || sq_f >= AREA-WIDTH))
     {
-        squares[sq_f]->shape = QUEEN;
+        sq_i_ptr->shape = QUEEN;
         phase += SHAPE_PHASE[QUEEN]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
         add_psv(player, QUEEN, sq_f);
         hash ^= ZTABLE[player][QUEEN][sq_f];
@@ -265,6 +262,9 @@ inline void move(unsigned long long &hash, bool &is_promote, Player player, Shap
         hash ^= ZTABLE[player][shape][sq_f];
         is_promote = false;
     }
+
+    squares[sq_f] = sq_i_ptr;
+    squares[sq_i] = nullptr;
 }
 
 /**
@@ -275,13 +275,21 @@ inline void move(unsigned long long &hash, bool &is_promote, Player player, Shap
  */
 inline void unmove(bool is_promote, Player player, Shape shape, short sq_i, short sq_f, BoardEntry *prev_sq_f_ptr)
 {
-    // add to initial square
-    squares[sq_i] = squares[sq_f];
-    squares[sq_i]->sq = sq_i;
+    BoardEntry *sq_f_ptr = squares[sq_f];
+    sq_f_ptr->sq = sq_i;
     add_psv(player, shape, sq_i);
 
-    // remove/restore final square
-    squares[sq_f] = prev_sq_f_ptr;
+    // demotion
+    if (is_promote)
+    {
+        sq_f_ptr->shape = PAWN;
+        phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
+        del_psv(player, QUEEN, sq_f);
+    }
+    else
+        del_psv(player, shape, sq_f);
+
+    // restore capture
     if (prev_sq_f_ptr)
     {
         Player add_player = prev_sq_f_ptr->player;
@@ -292,15 +300,8 @@ inline void unmove(bool is_promote, Player player, Shape shape, short sq_i, shor
         add_psv(add_player, add_shape, sq_f);
     }
 
-    // demotion
-    if (is_promote)
-    {
-        squares[sq_i]->shape = PAWN;
-        phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
-        del_psv(player, QUEEN, sq_f);
-    }
-    else
-        del_psv(player, shape, sq_f);
+    squares[sq_i] = sq_f_ptr;
+    squares[sq_f] = prev_sq_f_ptr;
 }
 
 /**
