@@ -138,32 +138,6 @@ inline bool is_play_area(short sq)
 class Board
 {
     public:
-        Board()
-        {
-            for (short player = BLACK; player <= WHITE; player++)
-            {
-                // NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
-                for (BoardEntry &piece : pieces[player])
-                {
-                    short sq = piece.sq;
-                    if (sq >= 0)
-                    {
-                        Shape &shape = piece.shape;
-
-                        if (shape == KING)
-                            KING_IND[player] = &piece;
-
-                        squares[sq] = &piece;
-                        hash ^= ZTABLE[player][shape][sq];
-                        phase += SHAPE_PHASE[shape];
-                        psv_opening[player] += PST_OPENING[player][shape][sq];
-                        psv_endgame[player] += PST_ENDGAME[player][shape][sq];
-                    }
-                }
-            }
-            MAX_PHASE = phase;
-        }
-
         /**
          * pieces
          * └── 0,1: see enum Player
@@ -221,6 +195,32 @@ class Board
         short psv_opening[MAX_PLAYER] = {0, 0};
         short psv_endgame[MAX_PLAYER] = {0, 0};
 
+        Board()
+        {
+            for (short player = BLACK; player <= WHITE; player++)
+            {
+                // NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
+                for (BoardEntry &piece : pieces[player])
+                {
+                    short sq = piece.sq;
+                    if (sq >= 0)
+                    {
+                        Shape &shape = piece.shape;
+
+                        if (shape == KING)
+                            KING_IND[player] = &piece;
+
+                        squares[sq] = &piece;
+                        hash ^= ZTABLE[player][shape][sq];
+                        phase += SHAPE_PHASE[shape];
+                        psv_opening[player] += PST_OPENING[player][shape][sq];
+                        psv_endgame[player] += PST_ENDGAME[player][shape][sq];
+                    }
+                }
+            }
+            MAX_PHASE = phase;
+        }
+
         inline void add_psv(Player player, Shape shape, short sq)
         {
             psv_opening[player] += PST_OPENING[player][shape][sq];
@@ -233,7 +233,7 @@ class Board
             psv_endgame[player] -= PST_ENDGAME[player][shape][sq];
         }
 
-        inline void move(unsigned long long &child_hash, bool &is_promote, Player player, Shape shape, short sq_i, short sq_f)
+        inline void move(unsigned long long &my_hash, bool &is_promote, Player player, Shape shape, short sq_i, short sq_f)
         {
             BoardEntry *sq_i_ptr = squares[sq_i];
             BoardEntry *sq_f_ptr = squares[sq_f];
@@ -247,11 +247,11 @@ class Board
                 sq_f_ptr->sq -= AREA; // move sq outside board
                 phase -= SHAPE_PHASE[del_shape];
                 del_psv(del_player, del_shape, sq_f);
-                child_hash ^= ZTABLE[del_player][del_shape][sq_f];
+                my_hash ^= ZTABLE[del_player][del_shape][sq_f];
             }
             sq_i_ptr->sq = sq_f;
             del_psv(player, shape, sq_i);
-            child_hash ^= ZTABLE[player][shape][sq_i] ^ Z_IS_BLACK;
+            my_hash ^= ZTABLE[player][shape][sq_i] ^ Z_IS_BLACK;
 
             // promotion
             if (shape == PAWN && (sq_f < WIDTH || sq_f >= AREA-WIDTH))
@@ -259,13 +259,13 @@ class Board
                 sq_i_ptr->shape = QUEEN;
                 phase += SHAPE_PHASE[QUEEN]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
                 add_psv(player, QUEEN, sq_f);
-                child_hash ^= ZTABLE[player][QUEEN][sq_f];
+                my_hash ^= ZTABLE[player][QUEEN][sq_f];
                 is_promote = true;
             }
             else
             {
                 add_psv(player, shape, sq_f);
-                child_hash ^= ZTABLE[player][shape][sq_f];
+                my_hash ^= ZTABLE[player][shape][sq_f];
                 is_promote = false;
             }
 
