@@ -634,6 +634,7 @@ class MVVLVAMoveGenerator
                         if (1 <= y_i && y_i <= 6)
                         {
                             short dy = rel_forward(player), sq_y = sq_i + dy;
+                            bool is_promote = (y_i == 1 && dy < 0) || (y_i == 6 && dy > 0);
 
                             // capture moves
                             for (short dx = -1; dx <= 1; dx += 2)
@@ -642,9 +643,14 @@ class MVVLVAMoveGenerator
                                 if (is_play_area(sq_f) && board.squares[sq_f])
                                 {
                                     BoardEntry &piece = *board.squares[sq_f];
-                                    Shape &shape_v = piece.shape;
+                                    Shape &shape_v = piece.shape;      
                                     if (piece.player != player && shape_v != KING)
-                                        MVVLVA_insert(shape_v);
+                                    {
+                                        if (is_promote)
+                                            MVVLVA_insert(QUEEN); // capture promotion best, treat as PAWN x QUEEN
+                                        else
+                                            MVVLVA_insert(shape_v);
+                                    }
                                 }
                             }
 
@@ -652,12 +658,18 @@ class MVVLVAMoveGenerator
                             sq_f = sq_y;
                             if (!board.squares[sq_f])
                             {
-                                quiet_push();
-                                if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // can step 2
+                                if (is_promote)
+                                    MVVLVA_insert(ROOK); // quiet promotion 2nd best, treat as PAWN x ROOK
+                                else
                                 {
-                                    sq_f += dy;
-                                    if (!board.squares[sq_f])
-                                        quiet_push();
+                                    quiet_push();
+
+                                    if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // can step 2
+                                    {
+                                        sq_f += dy;
+                                        if (!board.squares[sq_f])
+                                            quiet_push();
+                                    }
                                 }
                             }
                         }
@@ -929,7 +941,6 @@ short eval(unsigned long long hash, Player player, short depth, short alpha, sho
 void bot_move(short &best_sq_i, short &best_sq_f)
 {
     board.move_history[0] = board.hash;
-    bool is_checked_i = board.is_checked(BOT);
 
     bool is_PV_node = true, is_promote = NULL, has_child_score = NULL;
     short child_score = NULL, score = worst_score(BOT, 0);
