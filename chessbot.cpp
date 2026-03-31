@@ -999,14 +999,15 @@ void console_play()
         }
         while (invalid);
         engine.move(engine.hash, is_promote, HUMAN, engine.squares[sq_i]->shape, sq_i, sq_f);
+        engine.root_depth++;
         if (is_promote)
             std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
-        engine.root_depth++;
         std::cout << std::endl;
 
         sq_i = NULL;
         sq_f = NULL;
         engine.bot_move(sq_i, sq_f);
+        engine.root_depth++;
         if (!sq_i && !sq_f)
         {
             std::cout << engine;
@@ -1017,7 +1018,6 @@ void console_play()
         {
             std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl;
             engine.move(engine.hash, is_promote, BOT, engine.squares[sq_i]->shape, sq_i, sq_f);
-            engine.root_depth++;
             std::cout << std::endl;
         }
     }
