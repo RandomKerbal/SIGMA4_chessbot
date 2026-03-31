@@ -7,6 +7,7 @@
 #define PCG_LITTLE_ENDIAN 1
 #include "include/pcg_random.hpp"
 
+pcg32 rng32(0);
 pcg64 rng(0);
 
 enum SHAPE: short {
@@ -32,9 +33,21 @@ inline bool is_play_area(short sq)
     return unsigned(sq) < AREA && x_of(sq) < 8; // if x < 0, it becomes a huge unsigned number > AREA.
 }
 
-void write_fout(std::ofstream &fout)
+void write_fout(std::ofstream &fout, bool is_32)
 {
-    fout << "unsigned long long ZTABLE[MAX_PLAYER][MAX_SHAPE][AREA] = {";
+    std::string datatype, suffix;
+    if (is_32)
+    {
+        datatype = "unsigned long ";
+        suffix = "UL";
+    }
+    else
+    {
+        datatype = "unsigned long long ";
+        suffix = "ULL";
+    }
+
+    fout << datatype << "ZTABLE[MAX_PLAYER][MAX_SHAPE][AREA] = {";
     for (short player = BLACK; player <= WHITE; player++)
     {
         // Ztable
@@ -45,7 +58,7 @@ void write_fout(std::ofstream &fout)
             for (short sq = 0; sq < AREA; sq++)
             {
                 if (is_play_area(sq))
-                    fout << rng() << "ULL";
+                    fout << (is_32 ? rng32() : rng()) << suffix;
                 else
                     fout << "0";
                 fout << ",";
@@ -54,12 +67,15 @@ void write_fout(std::ofstream &fout)
         }
         fout << "},";
     }
-    fout << "};\nunsigned long long Z_IS_BLACK = " << rng() << "ULL;";
+    fout << "};\n" << datatype << "Z_IS_BLACK = " << (is_32 ? rng32() : rng()) << suffix << ";";
 }
 
 int main()
 {
     std::ofstream fout("precalc_Ztable.txt");
-    write_fout(fout);
+    std::ofstream fout32("precalc_Ztable32.txt");
+    write_fout(fout, false);
+    write_fout(fout32, true);
     fout.close();
+    fout32.close();
 }

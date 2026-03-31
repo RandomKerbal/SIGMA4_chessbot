@@ -93,7 +93,8 @@ const short R_VECTOR[4] = {
 };
 // no Q_VECTOR since it's a combination of B_VECTOR & R_VECTOR
 
-struct BoardEntry {
+struct BoardEntry
+{
     Player player;
     Shape shape;
     short sq;
@@ -102,7 +103,8 @@ struct BoardEntry {
     {}
 };
 const size_t TABLE_SZ = 1 << 22; // must be power of 2
-struct TtableEntry {
+struct TtableEntry
+{
     unsigned long long hash;
     short score;
     short game_depth;
@@ -111,877 +113,874 @@ struct TtableEntry {
     {}
 };
 
-inline short x_of(short sq)
+struct Engine
 {
-    return sq % WIDTH;
-}
+    inline short x_of(short sq) const
+    {
+        return sq % WIDTH;
+    }
 
-inline short y_of(short sq)
-{
-    return sq / WIDTH;
-}
+    inline short y_of(short sq) const
+    {
+        return sq / WIDTH;
+    }
 
-/**
- * @return the forward direction relative to the given player.
- * With BLACK at the top and WHITE at the bottom, black's forward = +WIDTH, white's forward = -WIDTH.
- */
-inline short rel_forward(Player player)
-{
-    return (player) ? -WIDTH : WIDTH;
-}
+    /**
+     * @return the forward direction relative to the given player.
+     * With BLACK at the top and WHITE at the bottom, black's forward = +WIDTH, white's forward = -WIDTH.
+     */
+    inline short rel_forward(Player player) const
+    {
+        return (player) ? -WIDTH : WIDTH;
+    }
 
-inline bool is_play_area(short sq)
-{
-    return unsigned(sq) < AREA && x_of(sq) < PLAY_WIDTH; // if x < 0, it becomes a huge unsigned number > AREA.
-}
+    inline bool is_play_area(short sq) const
+    {
+        return unsigned(sq) < AREA && x_of(sq) < PLAY_WIDTH; // if x < 0, it becomes a huge unsigned number > AREA.
+    }
 
-class Board
-{
-    public:
-        /**
-         * pieces
-         * └── 0,1: see enum Player
-         *     └── 0...16: max total number of pieces of each player
-         *         └── piece: { player, shape, sq }
-         * 
-         * If an piece is captured, its sq = sq - AREA.
-         * 
-         * IMPORTANT: Custom board sizes and positions are supported, but with the following constraints:
-         * 1. First element must be PAWN. Last element must be KING.
-         * 2. Each shape has a maximum of 8 pieces.
-         */
-        BoardEntry pieces[MAX_PLAYER][MAX_NUM_PIECE] = {
-            {   // black
-                { BLACK, PAWN,  10 }, { BLACK, PAWN,  11 }, { BLACK, PAWN, 12 }, { BLACK, PAWN, 13 }, { BLACK, PAWN, 14 }, { BLACK, PAWN, 15 }, { BLACK, PAWN, 16 }, { BLACK, PAWN, 17 },
-                { BLACK, KNIGHT, 1 }, { BLACK, KNIGHT, 6 },
-                { BLACK, BISHOP, 2 }, { BLACK, BISHOP, 5 },
-                { BLACK, ROOK,   0 }, { BLACK, ROOK,   7 },
-                { BLACK, QUEEN,  3 },
-                { BLACK, KING,   4 }
-            },
-            {   // white
-                { WHITE, PAWN,   60 }, { WHITE, PAWN,   61 }, { WHITE, PAWN, 62 }, { WHITE, PAWN, 63 }, { WHITE, PAWN, 64 }, { WHITE, PAWN, 65 }, { WHITE, PAWN, 66 }, { WHITE, PAWN, 67 },
-                { WHITE, KNIGHT, 71 }, { WHITE, KNIGHT, 76 },
-                { WHITE, BISHOP, 72 }, { WHITE, BISHOP, 75 },
-                { WHITE, ROOK,   70 }, { WHITE, ROOK,   77 },
-                { WHITE, QUEEN,  73 },
-                { WHITE, KING,   74 }
-            }
-        };
-        const BoardEntry *KING_IND[MAX_PLAYER] = { &pieces[BLACK][MAX_NUM_PIECE-1], &pieces[WHITE][MAX_NUM_PIECE-1] };
-
-        /** 
-         * squares
-         * ├── columns 8,9 element
-         * │   └── nullptr as sentinel
-         * │
-         * └── columns 0...8 element
-         *     └── pointer to a piece in the pieces[], else nullptr as empty square.
-         * 
-         * The squares is 10x8 since the two rightmost columns are sentinels that prevent
-         * iterators from "wrapping" onto the previous/next row. Sentinels/empties are nullptr to identify easily using !squares[sq].
-         */
-        BoardEntry *squares[AREA] = {nullptr};
-
-        unsigned long long hash = NULL;
-
-        TtableEntry t_table[TABLE_SZ]; // Transposition Table
-
-        unsigned long long move_history[MAX_DEPTH] = {0};
-
-        short root_depth = NULL;
-        short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
-        short phase = NULL; // sum of SHAPE_PHASE of all current pieces
-        short psv_opening[MAX_PLAYER] = {0, 0};
-        short psv_endgame[MAX_PLAYER] = {0, 0};
-
-        Board()
-        {
-            for (short player = BLACK; player <= WHITE; player++)
-            {
-                // NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
-                for (BoardEntry &piece : pieces[player])
-                {
-                    short sq = piece.sq;
-                    if (sq >= 0)
-                    {
-                        Shape &shape = piece.shape;
-
-                        if (shape == KING)
-                            KING_IND[player] = &piece;
-
-                        squares[sq] = &piece;
-                        hash ^= ZTABLE[player][shape][sq];
-                        phase += SHAPE_PHASE[shape];
-                        psv_opening[player] += PST_OPENING[player][shape][sq];
-                        psv_endgame[player] += PST_ENDGAME[player][shape][sq];
-                    }
-                }
-            }
-            MAX_PHASE = phase;
-        }
-
-        inline void add_psv(Player player, Shape shape, short sq)
-        {
-            psv_opening[player] += PST_OPENING[player][shape][sq];
-            psv_endgame[player] += PST_ENDGAME[player][shape][sq];
-        }
-
-        inline void del_psv(Player player, Shape shape, short sq)
-        {
-            psv_opening[player] -= PST_OPENING[player][shape][sq];
-            psv_endgame[player] -= PST_ENDGAME[player][shape][sq];
-        }
-
-        inline void move(unsigned long long &my_hash, bool &is_promote, Player player, Shape shape, short sq_i, short sq_f)
-        {
-            BoardEntry *sq_i_ptr = squares[sq_i];
-            BoardEntry *sq_f_ptr = squares[sq_f];
-
-            // capture
-            if (sq_f_ptr)
-            {
-                Player del_player = sq_f_ptr->player;
-                Shape del_shape = sq_f_ptr->shape;
-
-                sq_f_ptr->sq -= AREA; // move sq outside board
-                phase -= SHAPE_PHASE[del_shape];
-                del_psv(del_player, del_shape, sq_f);
-                my_hash ^= ZTABLE[del_player][del_shape][sq_f];
-            }
-            sq_i_ptr->sq = sq_f;
-            del_psv(player, shape, sq_i);
-            my_hash ^= ZTABLE[player][shape][sq_i] ^ Z_IS_BLACK;
-
-            // promotion
-            if (shape == PAWN && (sq_f < WIDTH || sq_f >= AREA-WIDTH))
-            {
-                sq_i_ptr->shape = QUEEN;
-                phase += SHAPE_PHASE[QUEEN]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
-                add_psv(player, QUEEN, sq_f);
-                my_hash ^= ZTABLE[player][QUEEN][sq_f];
-                is_promote = true;
-            }
-            else
-            {
-                add_psv(player, shape, sq_f);
-                my_hash ^= ZTABLE[player][shape][sq_f];
-                is_promote = false;
-            }
-
-            squares[sq_f] = sq_i_ptr;
-            squares[sq_i] = nullptr;
-        }
-
-        /**
-         * IMPORTANT:
-         * 1. Doesn't undo child_hash.
-         * 2. Same sq_i & sq_f as doing move.
-         * 3. Same shape as before promotion (promoted QUEEN still has shape = PAWN).
-         */
-        inline void unmove(bool is_promote, Player player, Shape shape, short sq_i, short sq_f, BoardEntry *prev_sq_f_ptr)
-        {
-            BoardEntry *sq_f_ptr = squares[sq_f];
-            sq_f_ptr->sq = sq_i;
-            add_psv(player, shape, sq_i);
-
-            // demotion
-            if (is_promote)
-            {
-                sq_f_ptr->shape = PAWN;
-                phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
-                del_psv(player, QUEEN, sq_f);
-            }
-            else
-                del_psv(player, shape, sq_f);
-
-            // restore capture
-            if (prev_sq_f_ptr)
-            {
-                Player add_player = prev_sq_f_ptr->player;
-                Shape add_shape = prev_sq_f_ptr->shape;
-
-                prev_sq_f_ptr->sq += AREA; // move sq back inside
-                phase += SHAPE_PHASE[add_shape];
-                add_psv(add_player, add_shape, sq_f);
-            }
-
-            squares[sq_i] = sq_f_ptr;
-            squares[sq_f] = prev_sq_f_ptr;
-        }
-
-        /**
-         * @return whether all entries on the path are empty.
-         */
-        inline bool is_path_clear(short sq_i, short sq_f, unsigned short dx, unsigned short dy)
-        {
-            short v = (sq_f - sq_i) / std::max(dx, dy);
-            for (short sq = sq_i + v; sq != sq_f; sq += v)
-            {
-                if (squares[sq])
-                    return false;
-            }
-            return true;
-        }
-
-        /**
-         * @return whether the given square is currently attacked by the enemy of the given player.
-         */
-        bool is_checked(Player player)
-        {
-            // check for enemy pawns by posing as pawn and check where I can capture
-            short dx = NULL, dy = NULL, sq_a = NULL, sq_k = KING_IND[player]->sq, y = y_of(sq_k);
-            {
-                short sq_y = sq_k + rel_forward(player);
-                for (dx = -1; dx <= 1; dx += 2)
-                {
-                    sq_a = sq_y + dx;
-                    if (is_play_area(sq_a) && squares[sq_a])
-                    {
-                        BoardEntry &attacker = *squares[sq_a];
-                        if (attacker.player != player && attacker.shape == PAWN)
-                            return true;
-                    }
-                }
-            }
-
-            // check for enemy KNIGHT, BISHOP, ROOK, QUEEN, KING by iterating over each piece
+    class MVVLVAMoveGenerator
+    {
+        public:
+            short sq_i = NULL, sq_f = NULL;
             Shape shape_a;
-            for (BoardEntry *attacker = pieces[!player]; attacker <= KING_IND[!player]; attacker++)
+            MVVLVAMoveGenerator(Player player, bool is_QS, const Engine &engine) : is_QS(is_QS), engine(engine)
             {
-                sq_a = attacker->sq;
-                shape_a = attacker->shape;
-                if (shape_a != PAWN && sq_a >= 0)
+                gen_MVVLVA_moves(player);
+            }
+
+            /**
+             * @return whether moves[] has element to assign to shape_a, sq_i, sq_f.
+             */
+            inline bool next()
+            {
+                while (i_v < KING)
                 {
-                    dx = abs(x_of(sq_a) - x_of(sq_k));
-                    dy = abs(y_of(sq_a) - y_of(sq_k));
-                    if (shape_a == KNIGHT && ((dx == 1 && dy == 2) || (dx == 2 && dy == 1)))
-                        return true;
-
-                    else if (shape_a == KING && std::max(dx, dy) <= 1)
-                        return true;
-
-                    else if (shape_a == BISHOP && dx == dy && is_path_clear(sq_k, sq_a, dx, dy))
-                        return true;
-
-                    else if (shape_a == ROOK && (dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, dx, dy))
-                        return true;
-
-                    else if (shape_a == QUEEN && (dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, dx, dy))
-                        return true;
-                }
-            }
-            return false;
-        }
-
-        inline short static_eval()
-        {
-            short score_opening = psv_opening[MAXER] - psv_opening[MINER],
-                score_endgame = psv_endgame[MAXER] - psv_endgame[MINER];
-
-            return score_endgame - (score_endgame - score_opening)*std::min(phase, MAX_PHASE)/MAX_PHASE; // linear interpolation
-        }
-
-        inline bool is_repeat(unsigned long long &my_hash, short depth)
-        {
-            return (depth >= 3 && my_hash == move_history[depth-3]); // experimentally determined no need to check lower/higher depths
-        }
-
-        inline void into_t_table(unsigned long long &my_hash, short score, short game_depth)
-        {
-            TtableEntry &entry = t_table[my_hash % TABLE_SZ];
-            if (game_depth >= entry.game_depth) // if bucket collision, keep the more recent and deeper search
-            {
-                entry.hash = my_hash;
-                entry.score = score;
-                entry.game_depth = game_depth;
-            }
-        }
-
-        /**
-         * @return whether move is valid.
-         * 0: valid. 1: illegal move vector. 2: outside play area. 3: empty initial square. 4: impersonating bot. 5: illegal capture. 6: blocked path. 7: is in check
-         */
-        short validate(short sq_i, short sq_f)
-        {
-            if (!is_play_area(sq_i) || !is_play_area(sq_f))
-                return 2;
-
-            BoardEntry *sq_i_ptr = squares[sq_i], *sq_f_ptr = squares[sq_f];
-            if (!sq_i_ptr)
-                return 3;
-
-            Player player = sq_i_ptr->player;
-            Shape shape = sq_i_ptr->shape;
-
-            if (player == BOT)
-                return 4;
-
-            else if (sq_f_ptr && (sq_f_ptr->player == player || sq_f_ptr->shape == KING))
-                return 5;
-
-            short dx = abs(x_of(sq_f) - x_of(sq_i)),
-                dy = abs(y_of(sq_f) - y_of(sq_i));
-
-            if (shape == PAWN)
-            {
-                if (rel_forward(player)*(sq_f - sq_i) < 0) // moved backward
-                    return 1;
-
-                if (!sq_f_ptr)
-                {
-                    if (dx != 0)
-                        return 1;
-
-                    if (dy > 1 + (y_of(sq_i) == 1 || y_of(sq_i) == 6)) // if pawn at starting line dy > 1+(1), else dy>1+(0)
-                        return 1;
-                }
-                else if (dx != 1 || dy != 1) // && not empty
-                    return 1;
-            }
-            else if (shape == KNIGHT && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
-                return 1;
-
-            else if (shape == BISHOP && dx != dy)
-                return 1;
-
-            else if (shape == ROOK && dx && dy)
-                return 1;
-
-            else if (shape == QUEEN && dx && dy && dx != dy)
-                return 1;
-
-            else if (shape == KING && std::max(dx, dy) > 1)
-                return 1;
-
-            if (shape != KNIGHT && shape != KING && !is_path_clear(sq_i, sq_f, dx, dy))
-                return 6;
-
-            bool is_promote = NULL;
-            unsigned long long _ = NULL;
-            move(_, is_promote, player, shape, sq_i, sq_f);
-            if (is_checked(player))
-            {
-                unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
-                return 7;
-            }
-            unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
-
-            // if all valid
-            return 0;
-        }
-
-        friend std::ostream &operator<<(std::ostream& out, const Board &board)
-        {
-            const char char_of[MAX_PLAYER][MAX_SHAPE] = {
-                { 'p', 'n', 'b', 'r', 'q', 'k' },
-                { 'P', 'N', 'B', 'R', 'Q', 'K' }
-            };
-            const char TAB[4] = "   ";
-
-            out << "Transposition Table:" << std::endl;
-            short i = NULL;
-            for (const TtableEntry &entry : board.t_table)
-            {
-                if (i < 10)
-                {
-                    if (entry.hash)
+                    while (i_a < MAX_SHAPE)
                     {
-                        out << TAB << entry.hash << ", " << entry.score << ", " << entry.game_depth << std::endl;
-                        i++;
-                    }
-                }
-                else
-                    break;
-            }
-            out << TAB << "... (" << TABLE_SZ - 10 << " more)" << std::endl;
-
-            out << "hash:" << std::endl << TAB << board.hash << std::endl;
-
-            out << "Distance from endgame:" << std::endl << TAB << board.phase << '/' << board.MAX_PHASE << std::endl << 
-                "Total half-moves:" << std::endl << TAB << board.root_depth << std::endl;
-
-
-            out << "Worth as opening:" << std::endl;
-            for (short player = BLACK; player <= WHITE; player++)
-            {
-                out << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << board.psv_opening[player] << std::endl;
-            }
-            out << "Worth as endgame:" << std::endl;
-            for (short player = BLACK; player <= WHITE; player++)
-            {
-                out << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << board.psv_endgame[player] << std::endl;
-            }
-
-            out << TAB << "+------------BLACK------------+" << std::endl;
-            for (short sq = 0; sq < AREA; sq++)
-            {
-                if (x_of(sq) > 7) // sentinels
-                {
-                    out << " . . | " << sq - 1 << std::endl;
-                    sq++;
-                }
-                else
-                {
-                    if (x_of(sq) == 0)
-                        out << std::setw(2) << sq << " |";
-
-                    BoardEntry *sq_ptr = board.squares[sq];
-                    if (sq_ptr)
-                        out << std::setw(3) << char_of[sq_ptr->player][sq_ptr->shape];
-                    else
-                        out << std::setw(3) << '_';
-                }
-            }
-            out << TAB << "+------------WHITE------------+" << std::endl;
-            return out;
-        }
-};
-
-Board board;
-
-class MVVLVAMoveGenerator
-{
-    public:
-        short sq_i = NULL, sq_f = NULL;
-        Shape shape_a;
-        MVVLVAMoveGenerator(Player player, bool is_QS) : is_QS(is_QS)
-        {
-            gen_MVVLVA_moves(player);
-        }
-
-        /**
-         * @return whether moves[] has element to assign to shape_a, sq_i, sq_f.
-         */
-        bool next()
-        {
-            while (i_v < KING)
-            {
-                while (i_a < MAX_SHAPE)
-                {
-                    if (i + 1 < moves_end[i_v][i_a])
-                    {
-                        shape_a = Shape(i_a);
-                        short *arr = moves[i_v][i_a];
-                        sq_i = arr[i++];
-                        sq_f = arr[i++];
-                        return true;
-                    }
-                    i = 0;
-                    i_a++;
-                }
-                i_a = 0;
-                i_v++;
-            }
-            if (i + 2 < quiet_moves.size())
-            {
-                shape_a = Shape(quiet_moves[i++]);
-                sq_i = quiet_moves[i++];
-                sq_f = quiet_moves[i++];
-                return true;
-            }
-            return false;
-        };
-
-    private:
-        /**
-         * moves
-         * └── victims ordered from most to least valuable: QUEEN, ..., PAWN (KING cannot be captured)
-         *     └── attackers ordered from least to most valuable: PAWN, ..., KING
-         *         └── sq_i,sq_f, sq_i,sq_f, ...
-         * 
-         * quiet_moves has - shape,sq_i,sq_f, shape,sq_i,sq_f, ...
-         */
-        short moves[KING][MAX_SHAPE][MAX_2NUM_AXB] = {{{0}}}, moves_end[KING][MAX_SHAPE] = {{0}}, i_v = NULL, i_a = NULL, i = NULL;
-        bool is_QS = NULL;
-        std::vector<short> quiet_moves;
-
-        inline void MVVLVA_insert(Shape shape_v)
-        {
-            if (!(is_QS && shape_v == PAWN))
-            {
-                short i_v = QUEEN - shape_v;
-                short *my_moves = moves[i_v][shape_a];
-                short &my_moves_end = moves_end[i_v][shape_a];
-                my_moves[my_moves_end++] = sq_i;
-                my_moves[my_moves_end++] = sq_f;
-            }
-        }
-        inline void quiet_push()
-        {
-            if (!is_QS)
-            {
-                short quiet_moves_end = quiet_moves.size();
-                quiet_moves.resize(quiet_moves_end + 3);
-                quiet_moves[quiet_moves_end] = shape_a;
-                quiet_moves[quiet_moves_end + 1] = sq_i;
-                quiet_moves[quiet_moves_end + 2] = sq_f;
-            }
-        }
-
-        void gen_MVVLVA_moves(Player player)
-        {
-            quiet_moves.reserve(MAX_3NUM_AXB);
-            for (BoardEntry *sq_i_ptr = board.pieces[player]; sq_i_ptr <= board.KING_IND[player]; sq_i_ptr++)
-            {
-                sq_i = sq_i_ptr->sq;
-                if (sq_i >= 0) // if not captured
-                {
-                    shape_a = sq_i_ptr->shape;
-                    if (shape_a == PAWN)
-                    {
-                        short y_i = y_of(sq_i);
-                        if (1 <= y_i && y_i <= 6)
+                        if (i + 1 < moves_end[i_v][i_a])
                         {
-                            short dy = rel_forward(player), sq_y = sq_i + dy;
-                            bool is_promote = (y_i == 1 && dy < 0) || (y_i == 6 && dy > 0);
+                            shape_a = Shape(i_a);
+                            short *arr = moves[i_v][i_a];
+                            sq_i = arr[i++];
+                            sq_f = arr[i++];
+                            return true;
+                        }
+                        i = 0;
+                        i_a++;
+                    }
+                    i_a = 0;
+                    i_v++;
+                }
+                if (i + 2 < quiet_moves.size())
+                {
+                    shape_a = Shape(quiet_moves[i++]);
+                    sq_i = quiet_moves[i++];
+                    sq_f = quiet_moves[i++];
+                    return true;
+                }
+                return false;
+            };
 
-                            // capture moves
-                            for (short dx = -1; dx <= 1; dx += 2)
+        private:
+            /**
+             * moves
+             * └── victims ordered from most to least valuable: QUEEN, ..., PAWN (KING cannot be captured)
+             *     └── attackers ordered from least to most valuable: PAWN, ..., KING
+             *         └── sq_i,sq_f, sq_i,sq_f, ...
+             * 
+             * quiet_moves has - shape,sq_i,sq_f, shape,sq_i,sq_f, ...
+             */
+            short moves[KING][MAX_SHAPE][MAX_2NUM_AXB] = {{{0}}}, moves_end[KING][MAX_SHAPE] = {{0}}, i_v = NULL, i_a = NULL, i = NULL;
+            bool is_QS = NULL;
+            const Engine &engine;
+            std::vector<short> quiet_moves;
+
+            inline void MVVLVA_insert(Shape shape_v)
+            {
+                if (!(is_QS && shape_v == PAWN))
+                {
+                    short i_v = QUEEN - shape_v;
+                    short *my_moves = moves[i_v][shape_a];
+                    short &my_moves_end = moves_end[i_v][shape_a];
+                    my_moves[my_moves_end++] = sq_i;
+                    my_moves[my_moves_end++] = sq_f;
+                }
+            }
+            inline void quiet_push()
+            {
+                if (!is_QS)
+                {
+                    short quiet_moves_end = quiet_moves.size();
+                    quiet_moves.resize(quiet_moves_end + 3);
+                    quiet_moves[quiet_moves_end] = shape_a;
+                    quiet_moves[quiet_moves_end + 1] = sq_i;
+                    quiet_moves[quiet_moves_end + 2] = sq_f;
+                }
+            }
+
+            void gen_MVVLVA_moves(Player player)
+            {
+                quiet_moves.reserve(MAX_3NUM_AXB);
+                for (const BoardEntry *sq_i_ptr = engine.pieces[player]; sq_i_ptr <= engine.KING_IND[player]; sq_i_ptr++)
+                {
+                    sq_i = sq_i_ptr->sq;
+                    if (sq_i >= 0) // if not captured
+                    {
+                        shape_a = sq_i_ptr->shape;
+                        if (shape_a == PAWN)
+                        {
+                            short y_i = engine.y_of(sq_i);
+                            if (1 <= y_i && y_i <= 6)
                             {
-                                sq_f = sq_y + dx;
-                                if (is_play_area(sq_f) && board.squares[sq_f])
+                                short dy = engine.rel_forward(player), sq_y = sq_i + dy;
+                                bool is_promote = (y_i == 1 && dy < 0) || (y_i == 6 && dy > 0);
+
+                                // capture moves
+                                for (short dx = -1; dx <= 1; dx += 2)
                                 {
-                                    BoardEntry &piece = *board.squares[sq_f];
-                                    Shape &shape_v = piece.shape;      
-                                    if (piece.player != player && shape_v != KING)
+                                    sq_f = sq_y + dx;
+                                    if (engine.is_play_area(sq_f) && engine.squares[sq_f])
                                     {
-                                        if (is_promote)
-                                            MVVLVA_insert(QUEEN); // capture promotion best, treat as PAWN x QUEEN
-                                        else
+                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Shape shape_v = piece.shape;      
+                                        if (piece.player != player && shape_v != KING)
+                                        {
+                                            if (is_promote)
+                                                MVVLVA_insert(QUEEN); // capture promotion best, treat as PAWN x QUEEN
+                                            else
+                                                MVVLVA_insert(shape_v);
+                                        }
+                                    }
+                                }
+
+                                // y-moves
+                                sq_f = sq_y;
+                                if (!engine.squares[sq_f])
+                                {
+                                    if (is_promote)
+                                        MVVLVA_insert(ROOK); // quiet promotion 2nd best, treat as PAWN x ROOK
+                                    else
+                                    {
+                                        quiet_push();
+
+                                        if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // can step 2
+                                        {
+                                            sq_f += dy;
+                                            if (!engine.squares[sq_f])
+                                                quiet_push();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        else if (shape_a == KNIGHT)
+                        {
+                            for (short v: N_VECTOR)
+                            {
+                                sq_f = sq_i + v;
+                                if (engine.is_play_area(sq_f))
+                                {
+                                    if (!engine.squares[sq_f])
+                                        quiet_push();
+                                    else
+                                    {
+                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Shape shape_v = piece.shape;
+                                        if (piece.player != player && shape_v != KING)
                                             MVVLVA_insert(shape_v);
                                     }
                                 }
                             }
-
-                            // y-moves
-                            sq_f = sq_y;
-                            if (!board.squares[sq_f])
+                        }
+                        else if (shape_a == KING)
+                        {
+                            for (short v: K_VECTOR)
                             {
-                                if (is_promote)
-                                    MVVLVA_insert(ROOK); // quiet promotion 2nd best, treat as PAWN x ROOK
-                                else
+                                sq_f = sq_i + v;
+                                if (engine.is_play_area(sq_f))
                                 {
-                                    quiet_push();
-
-                                    if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // can step 2
+                                    if (!engine.squares[sq_f])
+                                        quiet_push();
+                                    else
                                     {
-                                        sq_f += dy;
-                                        if (!board.squares[sq_f])
-                                            quiet_push();
+                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Shape shape_v = piece.shape;
+                                        if (piece.player != player && shape_v != KING)
+                                            MVVLVA_insert(shape_v);
                                     }
                                 }
                             }
                         }
-                    }
-                    else if (shape_a == KNIGHT)
-                    {
-                        for (short v: N_VECTOR)
+                        else
                         {
-                            sq_f = sq_i + v;
-                            if (is_play_area(sq_f))
+                            if (shape_a == BISHOP || shape_a == QUEEN)
                             {
-                                if (!board.squares[sq_f])
-                                    quiet_push();
-                                else
+                                for (short v: B_VECTOR)
                                 {
-                                    BoardEntry &piece = *board.squares[sq_f];
-                                    Shape &shape_v = piece.shape;
-                                    if (piece.player != player && shape_v != KING)
-                                        MVVLVA_insert(shape_v);
+                                    for (sq_f = sq_i + v; engine.is_play_area(sq_f) && !engine.squares[sq_f]; sq_f += v)
+                                        quiet_push();
+                                    
+                                    if (engine.is_play_area(sq_f))
+                                    {
+                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Shape shape_v = piece.shape;
+                                        if (piece.player != player && shape_v != KING)
+                                            MVVLVA_insert(shape_v);
+                                    }
                                 }
                             }
-                        }
-                    }
-                    else if (shape_a == KING)
-                    {
-                        for (short v: K_VECTOR)
-                        {
-                            sq_f = sq_i + v;
-                            if (is_play_area(sq_f))
+                            if (shape_a == ROOK || shape_a == QUEEN)
                             {
-                                if (!board.squares[sq_f])
-                                    quiet_push();
-                                else
+                                for (short v: R_VECTOR)
                                 {
-                                    BoardEntry &piece = *board.squares[sq_f];
-                                    Shape &shape_v = piece.shape;
-                                    if (piece.player != player && shape_v != KING)
-                                        MVVLVA_insert(shape_v);
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (shape_a == BISHOP || shape_a == QUEEN)
-                        {
-                            for (short v: B_VECTOR)
-                            {
-                                for (sq_f = sq_i + v; is_play_area(sq_f) && !board.squares[sq_f]; sq_f += v)
-                                    quiet_push();
-                                
-                                if (is_play_area(sq_f))
-                                {
-                                    BoardEntry &piece = *board.squares[sq_f];
-                                    Shape &shape_v = piece.shape;
-                                    if (piece.player != player && shape_v != KING)
-                                        MVVLVA_insert(shape_v);
-                                }
-                            }
-                        }
-                        if (shape_a == ROOK || shape_a == QUEEN)
-                        {
-                            for (short v: R_VECTOR)
-                            {
-                                // travel until on top of a piece
-                                for (sq_f = sq_i + v; is_play_area(sq_f) && !board.squares[sq_f]; sq_f += v)
-                                    quiet_push();
+                                    // travel until on top of a piece
+                                    for (sq_f = sq_i + v; engine.is_play_area(sq_f) && !engine.squares[sq_f]; sq_f += v)
+                                        quiet_push();
 
-                                if (is_play_area(sq_f))
-                                {
-                                    BoardEntry &piece = *board.squares[sq_f];
-                                    Shape &shape_v = piece.shape;
-                                    if (piece.player != player && shape_v != KING)
-                                        MVVLVA_insert(shape_v);
+                                    if (engine.is_play_area(sq_f))
+                                    {
+                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Shape shape_v = piece.shape;
+                                        if (piece.player != player && shape_v != KING)
+                                            MVVLVA_insert(shape_v);
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+    };
+    /**
+     * pieces
+     * └── 0,1: see enum Player
+     *     └── 0...16: max total number of pieces of each player
+     *         └── piece: { player, shape, sq }
+     * 
+     * If an piece is captured, its sq = sq - AREA.
+     * 
+     * IMPORTANT: Custom board sizes and positions are supported, but with the following constraints:
+     * 1. First element must be PAWN. Last element must be KING.
+     * 2. Each shape has a maximum of 8 pieces.
+     * 3. Remember to change MAX_NUM_PIECE.
+     */
+    BoardEntry pieces[MAX_PLAYER][MAX_NUM_PIECE] = {
+        {   // black
+            { BLACK, PAWN,  10 }, { BLACK, PAWN,  11 }, { BLACK, PAWN, 12 }, { BLACK, PAWN, 13 }, { BLACK, PAWN, 14 }, { BLACK, PAWN, 15 }, { BLACK, PAWN, 16 }, { BLACK, PAWN, 17 },
+            { BLACK, KNIGHT, 1 }, { BLACK, KNIGHT, 6 },
+            { BLACK, BISHOP, 2 }, { BLACK, BISHOP, 5 },
+            { BLACK, ROOK,   0 }, { BLACK, ROOK,   7 },
+            { BLACK, QUEEN,  3 },
+            { BLACK, KING,   4 }
+        },
+        {   // white
+            { WHITE, PAWN,   60 }, { WHITE, PAWN,   61 }, { WHITE, PAWN, 62 }, { WHITE, PAWN, 63 }, { WHITE, PAWN, 64 }, { WHITE, PAWN, 65 }, { WHITE, PAWN, 66 }, { WHITE, PAWN, 67 },
+            { WHITE, KNIGHT, 71 }, { WHITE, KNIGHT, 76 },
+            { WHITE, BISHOP, 72 }, { WHITE, BISHOP, 75 },
+            { WHITE, ROOK,   70 }, { WHITE, ROOK,   77 },
+            { WHITE, QUEEN,  73 },
+            { WHITE, KING,   74 }
         }
-};
+    };
+    const BoardEntry *KING_IND[MAX_PLAYER] = { &pieces[BLACK][MAX_NUM_PIECE-1], &pieces[WHITE][MAX_NUM_PIECE-1] };
 
-inline short worst_score(Player player, short depth)
-{
-    return (player == MAXER) ? SHRT_MIN + depth : SHRT_MAX - depth; // earlier checkmate worst than later
-}
+    /** 
+     * squares
+     * ├── columns 8,9 element
+     * │   └── nullptr as sentinel
+     * │
+     * └── columns 0...8 element
+     *     └── pointer to a piece in the pieces[], else nullptr as empty square.
+     * 
+     * The squares is 10x8 since the two rightmost columns are sentinels that prevent
+     * iterators from "wrapping" onto the previous/next row. Sentinels/empties are nullptr to identify easily using !squares[sq].
+     */
+    BoardEntry *squares[AREA] = {nullptr};
 
-short QS_eval(unsigned long long &hash, Player player, short alpha, short beta)
-{
-    short score = board.static_eval();
+    unsigned long long hash = NULL;
 
-    // stand pat
-    if (!board.is_checked(player))
+    TtableEntry t_table[TABLE_SZ]; // Transposition Table
+
+    unsigned long long move_history[MAX_DEPTH] = {0};
+
+    short root_depth = NULL;
+    short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
+    short phase = NULL; // sum of SHAPE_PHASE of all current pieces
+    short psv_opening[MAX_PLAYER] = {0, 0};
+    short psv_endgame[MAX_PLAYER] = {0, 0};
+
+    Engine()
     {
-        if (player == MAXER)
+        for (short player = BLACK; player <= WHITE; player++)
         {
-            if (score >= beta)
-                return score;
+            // NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
+            for (BoardEntry &piece : pieces[player])
+            {
+                short sq = piece.sq;
+                if (sq >= 0)
+                {
+                    const Shape &shape = piece.shape;
 
-            if (score > alpha)
-                alpha = score;
+                    if (shape == KING)
+                        KING_IND[player] = &piece;
+
+                    squares[sq] = &piece;
+                    hash ^= ZTABLE[player][shape][sq];
+                    phase += SHAPE_PHASE[shape];
+                    psv_opening[player] += PST_OPENING[player][shape][sq];
+                    psv_endgame[player] += PST_ENDGAME[player][shape][sq];
+                }
+            }
+        }
+        MAX_PHASE = phase;
+    }
+
+    inline void add_psv(Player player, Shape shape, short sq)
+    {
+        psv_opening[player] += PST_OPENING[player][shape][sq];
+        psv_endgame[player] += PST_ENDGAME[player][shape][sq];
+    }
+
+    inline void del_psv(Player player, Shape shape, short sq)
+    {
+        psv_opening[player] -= PST_OPENING[player][shape][sq];
+        psv_endgame[player] -= PST_ENDGAME[player][shape][sq];
+    }
+
+    inline void move(unsigned long long &my_hash, bool &is_promote, Player player, Shape shape, short sq_i, short sq_f)
+    {
+        BoardEntry *sq_i_ptr = squares[sq_i];
+        BoardEntry *sq_f_ptr = squares[sq_f];
+
+        // capture
+        if (sq_f_ptr)
+        {
+            Player del_player = sq_f_ptr->player;
+            Shape del_shape = sq_f_ptr->shape;
+
+            sq_f_ptr->sq -= AREA; // move sq outside board
+            phase -= SHAPE_PHASE[del_shape];
+            del_psv(del_player, del_shape, sq_f);
+            my_hash ^= ZTABLE[del_player][del_shape][sq_f];
+        }
+        sq_i_ptr->sq = sq_f;
+        del_psv(player, shape, sq_i);
+        my_hash ^= ZTABLE[player][shape][sq_i] ^ Z_IS_BLACK;
+
+        // promotion
+        if (shape == PAWN && (sq_f < WIDTH || sq_f >= AREA-WIDTH))
+        {
+            sq_i_ptr->shape = QUEEN;
+            phase += SHAPE_PHASE[QUEEN]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
+            add_psv(player, QUEEN, sq_f);
+            my_hash ^= ZTABLE[player][QUEEN][sq_f];
+            is_promote = true;
         }
         else
         {
-            if (score <= alpha)
-                return score;
-
-            if (score < beta)
-                beta = score;
+            add_psv(player, shape, sq_f);
+            my_hash ^= ZTABLE[player][shape][sq_f];
+            is_promote = false;
         }
+
+        squares[sq_f] = sq_i_ptr;
+        squares[sq_i] = nullptr;
     }
 
-    bool is_promote = NULL, has_child_score = NULL;
-    short child_score = NULL;
-    unsigned long long child_hash = NULL;
-    BoardEntry *sq_f_ptr;
-    MVVLVAMoveGenerator moves(player, true);
-    while (moves.next())
+    /**
+     * IMPORTANT:
+     * 1. Doesn't undo child_hash.
+     * 2. Same sq_i & sq_f as doing move.
+     * 3. Same shape as before promotion (promoted QUEEN still has shape = PAWN).
+     */
+    inline void unmove(bool is_promote, Player player, Shape shape, short sq_i, short sq_f, BoardEntry *prev_sq_f_ptr)
     {
-        child_hash = hash;
-        has_child_score = false;
-        sq_f_ptr = board.squares[moves.sq_f];
-        board.move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
+        BoardEntry *sq_f_ptr = squares[sq_f];
+        sq_f_ptr->sq = sq_i;
+        add_psv(player, shape, sq_i);
 
-        TtableEntry &child_entry = board.t_table[child_hash % TABLE_SZ];
-        if (child_hash == child_entry.hash)
+        // demotion
+        if (is_promote)
         {
-            child_score = child_entry.score;
-            has_child_score = true;
-        }
-        else if (!board.is_checked(player))
-        {
-            child_score = QS_eval(child_hash, !player, alpha, beta);
-            has_child_score = true;
-        }
-
-        board.unmove(is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
-
-        if (has_child_score)
-        {
-            if (player == MAXER)
-            {
-                if (child_score > score)
-                    score = child_score;
-                if (child_score > alpha)
-                    alpha = child_score;
-            }
-            else
-            {
-                if (child_score < score)
-                    score = child_score;
-                if (child_score < beta)
-                    beta = child_score;
-            }
-            if (alpha >= beta)
-            {
-                board.into_t_table(hash, score, SHRT_MIN); // store depth as -inf to never overwrite proper search
-                return score;
-            }
-        }
-    }
-    return score;
-}
-
-/**
- * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Repetition Check + Quiescence Search + Standing Pat
- * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
- * @return
- *      n ∈ (SHRT_MIN, 0) U (0, SHRT_MAX) if over MAX_DEPTH.
- *      n = SHRT_MAX if check/stalemated by MAXER.
- *      n = SHRT_MIN if check/stalemated by MINER.
- */
-short eval(unsigned long long hash, Player player, short depth, short alpha, short beta, bool is_NM_eval, bool is_PV_node)
-{
-    if (depth == MAX_DEPTH)
-        return QS_eval(hash, player, alpha, beta);
-
-    board.move_history[depth] = hash;
-    bool is_checked_i = board.is_checked(player);
-    short child_score = NULL;
-
-    // Null-Move Pruning
-    if (depth <= MAX_NM_DEPTH && board.phase && !is_NM_eval && !is_PV_node && !is_checked_i)
-    {
-        if (player == MAXER)
-        {
-            child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, beta-1, beta, true, false);
-            if (child_score >= beta)
-            {
-                board.move_history[depth] = NULL;
-                return beta;
-            }
+            sq_f_ptr->shape = PAWN;
+            phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
+            del_psv(player, QUEEN, sq_f);
         }
         else
+            del_psv(player, shape, sq_f);
+
+        // restore capture
+        if (prev_sq_f_ptr)
         {
-            child_score = eval(hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, false);
-            if (child_score <= alpha)
+            Player add_player = prev_sq_f_ptr->player;
+            Shape add_shape = prev_sq_f_ptr->shape;
+
+            prev_sq_f_ptr->sq += AREA; // move sq back inside
+            phase += SHAPE_PHASE[add_shape];
+            add_psv(add_player, add_shape, sq_f);
+        }
+
+        squares[sq_i] = sq_f_ptr;
+        squares[sq_f] = prev_sq_f_ptr;
+    }
+
+    /**
+     * @return whether all entries on the path are empty.
+     */
+    inline bool is_path_clear(short sq_i, short sq_f, unsigned short dx, unsigned short dy)
+    {
+        short v = (sq_f - sq_i) / std::max(dx, dy);
+        for (short sq = sq_i + v; sq != sq_f; sq += v)
+        {
+            if (squares[sq])
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * @return whether the given square is currently attacked by the enemy of the given player.
+     */
+    inline bool is_checked(Player player)
+    {
+        // check for enemy pawns by posing as pawn and check where I can capture
+        short dx = NULL, dy = NULL, sq_a = NULL, sq_k = KING_IND[player]->sq;
+        {
+            short sq_y = sq_k + rel_forward(player);
+            for (dx = -1; dx <= 1; dx += 2)
             {
-                board.move_history[depth] = NULL;
-                return alpha;
+                sq_a = sq_y + dx;
+                if (is_play_area(sq_a) && squares[sq_a])
+                {
+                    const BoardEntry &attacker = *squares[sq_a];
+                    if (attacker.player != player && attacker.shape == PAWN)
+                        return true;
+                }
             }
+        }
+
+        // check for enemy KNIGHT, BISHOP, ROOK, QUEEN, KING by iterating over each piece
+        Shape shape_a;
+        for (BoardEntry *attacker = pieces[!player]; attacker <= KING_IND[!player]; attacker++)
+        {
+            sq_a = attacker->sq;
+            shape_a = attacker->shape;
+            if (shape_a != PAWN && sq_a >= 0)
+            {
+                dx = abs(x_of(sq_a) - x_of(sq_k));
+                dy = abs(y_of(sq_a) - y_of(sq_k));
+                if (shape_a == KNIGHT && ((dx == 1 && dy == 2) || (dx == 2 && dy == 1)))
+                    return true;
+
+                else if (shape_a == KING && std::max(dx, dy) <= 1)
+                    return true;
+
+                else if (shape_a == BISHOP && dx == dy && is_path_clear(sq_k, sq_a, dx, dy))
+                    return true;
+
+                else if (shape_a == ROOK && (dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, dx, dy))
+                    return true;
+
+                else if (shape_a == QUEEN && (dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, dx, dy))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    inline short static_eval()
+    {
+        short score_opening = psv_opening[MAXER] - psv_opening[MINER],
+            score_endgame = psv_endgame[MAXER] - psv_endgame[MINER];
+
+        return score_endgame - (score_endgame - score_opening)*std::min(phase, MAX_PHASE)/MAX_PHASE; // linear interpolation
+    }
+
+    inline bool is_repeat(const unsigned long long &my_hash, short depth)
+    {
+        return (depth >= 3 && my_hash == move_history[depth-3]); // experimentally determined no need to check lower/higher depths
+    }
+
+    inline void into_t_table(const unsigned long long &my_hash, short score, short game_depth)
+    {
+        TtableEntry &entry = t_table[my_hash % TABLE_SZ];
+        if (game_depth >= entry.game_depth) // if bucket collision, keep the more recent and deeper search
+        {
+            entry.hash = my_hash;
+            entry.score = score;
+            entry.game_depth = game_depth;
         }
     }
 
-    bool is_promote = NULL, has_child_score = NULL;
-    short my_worst_score = worst_score(player, depth), score = my_worst_score, game_depth = NULL;
-    unsigned long long child_hash = NULL;
-    BoardEntry *sq_f_ptr;
-    MVVLVAMoveGenerator moves(player, false);
-    while (moves.next())
+    inline short worst_score(Player player, short depth)
     {
-        child_hash = hash;
-        has_child_score = false;
-        sq_f_ptr = board.squares[moves.sq_f];
-        board.move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
+        return (player == MAXER) ? SHRT_MIN + depth : SHRT_MAX - depth; // earlier checkmate worst than later
+    }
 
-        TtableEntry &child_entry = board.t_table[child_hash % TABLE_SZ];
-        game_depth = board.root_depth + depth;
-        if (child_hash == child_entry.hash && child_entry.game_depth >= game_depth)
-        {
-            child_score = child_entry.score;
-            has_child_score = true;
-        }
-        else if (!board.is_repeat(child_hash, depth) && !board.is_checked(player))
-        {
-            child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, is_PV_node);
-            has_child_score = true;
-            is_PV_node = false;
-        }
+    short QS_eval(const unsigned long long &my_hash, Player player, short alpha, short beta)
+    {
+        short score = static_eval();
 
-        board.unmove(is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
-
-        if (has_child_score)
+        // stand pat
+        if (!is_checked(player))
         {
             if (player == MAXER)
             {
-                if (child_score > score)
-                    score = child_score;
-                if (child_score > alpha)
-                    alpha = child_score;
+                if (score >= beta)
+                    return score;
+
+                if (score > alpha)
+                    alpha = score;
             }
             else
             {
-                if (child_score < score)
-                    score = child_score;
-                if (child_score < beta)
-                    beta = child_score;
+                if (score <= alpha)
+                    return score;
+
+                if (score < beta)
+                    beta = score;
             }
-            if (alpha >= beta)
+        }
+
+        bool is_promote = NULL, has_child_score = NULL;
+        short child_score = NULL;
+        unsigned long long child_hash = NULL;
+        BoardEntry *sq_f_ptr;
+        MVVLVAMoveGenerator moves(player, true, *this);
+        while (moves.next())
+        {
+            child_hash = my_hash;
+            has_child_score = false;
+            sq_f_ptr = squares[moves.sq_f];
+            move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
+
+            const TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
+            if (child_hash == child_entry.hash)
             {
-                board.into_t_table(hash, score, game_depth);
-                board.move_history[depth] = NULL;
-                return score;
+                child_score = child_entry.score;
+                has_child_score = true;
+            }
+            else if (!is_checked(player))
+            {
+                child_score = QS_eval(child_hash, !player, alpha, beta);
+                has_child_score = true;
+            }
+
+            unmove(is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+
+            if (has_child_score)
+            {
+                if (player == MAXER)
+                {
+                    if (child_score > score)
+                        score = child_score;
+                    if (child_score > alpha)
+                        alpha = child_score;
+                }
+                else
+                {
+                    if (child_score < score)
+                        score = child_score;
+                    if (child_score < beta)
+                        beta = child_score;
+                }
+                if (alpha >= beta)
+                {
+                    into_t_table(my_hash, score, SHRT_MIN); // store depth as -inf to never overwrite proper search
+                    return score;
+                }
+            }
+        }
+        return score;
+    }
+
+    /**
+     * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Repetition Check + Quiescence Search + Standing Pat
+     * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
+     * @return
+     *      n ∈ (SHRT_MIN, 0) U (0, SHRT_MAX) if over MAX_DEPTH.
+     *      n = SHRT_MAX if check/stalemated by MAXER.
+     *      n = SHRT_MIN if check/stalemated by MINER.
+     */
+    short eval(unsigned long long my_hash, Player player, short depth, short alpha, short beta, bool is_NM_eval, bool is_PV_node)
+    {
+        if (depth == MAX_DEPTH)
+            return QS_eval(my_hash, player, alpha, beta);
+
+        move_history[depth] = my_hash;
+        bool is_checked_i = is_checked(player);
+        short child_score = NULL;
+
+        // Null-Move Pruning
+        if (depth <= MAX_NM_DEPTH && phase && !is_NM_eval && !is_PV_node && !is_checked_i)
+        {
+            if (player == MAXER)
+            {
+                child_score = eval(my_hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, beta-1, beta, true, false);
+                if (child_score >= beta)
+                {
+                    move_history[depth] = NULL;
+                    return beta;
+                }
+            }
+            else
+            {
+                child_score = eval(my_hash^Z_IS_BLACK, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, false);
+                if (child_score <= alpha)
+                {
+                    move_history[depth] = NULL;
+                    return alpha;
+                }
+            }
+        }
+
+        bool is_promote = NULL, has_child_score = NULL;
+        short my_worst_score = worst_score(player, depth), score = my_worst_score, game_depth = NULL;
+        unsigned long long child_hash = NULL;
+        BoardEntry *sq_f_ptr;
+        MVVLVAMoveGenerator moves(player, false, *this);
+        while (moves.next())
+        {
+            child_hash = my_hash;
+            has_child_score = false;
+            sq_f_ptr = squares[moves.sq_f];
+            move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
+
+            const TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
+            game_depth = root_depth + depth;
+            if (child_hash == child_entry.hash && child_entry.game_depth >= game_depth)
+            {
+                child_score = child_entry.score;
+                has_child_score = true;
+            }
+            else if (!is_repeat(child_hash, depth) && !is_checked(player))
+            {
+                child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, is_PV_node);
+                has_child_score = true;
+                is_PV_node = false;
+            }
+
+            unmove(is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+
+            if (has_child_score)
+            {
+                if (player == MAXER)
+                {
+                    if (child_score > score)
+                        score = child_score;
+                    if (child_score > alpha)
+                        alpha = child_score;
+                }
+                else
+                {
+                    if (child_score < score)
+                        score = child_score;
+                    if (child_score < beta)
+                        beta = child_score;
+                }
+                if (alpha >= beta)
+                {
+                    into_t_table(my_hash, score, game_depth);
+                    move_history[depth] = NULL;
+                    return score;
+                }
+            }
+        }
+        move_history[depth] = NULL;
+        if (score == my_worst_score && !is_checked_i)
+            // stalemate
+            score = 0;
+        into_t_table(my_hash, score, game_depth);
+        return score;
+    }
+
+    void bot_move(short &best_sq_i, short &best_sq_f)
+    {
+        move_history[0] = hash;
+
+        bool is_PV_node = true, is_promote = NULL, has_child_score = NULL;
+        short child_score = NULL, score = worst_score(BOT, 0);
+        unsigned long long child_hash = NULL;
+        BoardEntry *sq_f_ptr;
+        MVVLVAMoveGenerator moves(BOT, false, *this);
+        std::cout << "Possible {square_i, square_f, score}:" << std::endl;
+        while (moves.next() && score != worst_score(HUMAN, 0))
+        {
+            child_hash = hash;
+            has_child_score = false;
+            sq_f_ptr = squares[moves.sq_f];
+            move(child_hash, is_promote, BOT, moves.shape_a, moves.sq_i, moves.sq_f);
+            
+            if (!is_checked(BOT))
+            {
+                child_score = eval(child_hash, HUMAN, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node);
+                has_child_score = true;
+                is_PV_node = false;
+            }
+
+            unmove(is_promote, BOT, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+
+            if (has_child_score)
+            {
+                std::cout << "{" << moves.sq_i << ", " << moves.sq_f << ", " << child_score << "}," << std::endl;
+                if (BOT == MAXER && child_score > score)
+                {
+                    best_sq_i = moves.sq_i;
+                    best_sq_f = moves.sq_f;
+                    score = child_score;
+                }
+                else if (BOT == MINER && child_score < score)
+                {
+                    best_sq_i = moves.sq_i;
+                    best_sq_f = moves.sq_f;
+                    score = child_score;
+                }
             }
         }
     }
-    board.move_history[depth] = NULL;
-    if (score == my_worst_score && !is_checked_i)
+
+    /**
+     * @return whether move is valid.
+     * 0: valid. 1: illegal move vector. 2: outside play area. 3: empty initial square. 4: impersonating bot. 5: illegal capture. 6: blocked path. 7: is in check
+     */
+    short validate(short sq_i, short sq_f)
     {
-        // stalemate
-        board.into_t_table(hash, 0, game_depth);
+        if (!is_play_area(sq_i) || !is_play_area(sq_f))
+            return 2;
+
+        BoardEntry *sq_i_ptr = squares[sq_i], *sq_f_ptr = squares[sq_f];
+        if (!sq_i_ptr)
+            return 3;
+
+        Player player = sq_i_ptr->player;
+        Shape shape = sq_i_ptr->shape;
+
+        if (player == BOT)
+            return 4;
+
+        else if (sq_f_ptr && (sq_f_ptr->player == player || sq_f_ptr->shape == KING))
+            return 5;
+
+        short dx = abs(x_of(sq_f) - x_of(sq_i)),
+            dy = abs(y_of(sq_f) - y_of(sq_i));
+
+        if (shape == PAWN)
+        {
+            if (rel_forward(player)*(sq_f - sq_i) < 0) // moved backward
+                return 1;
+
+            if (!sq_f_ptr)
+            {
+                if (dx != 0)
+                    return 1;
+
+                if (dy > 1 + (y_of(sq_i) == 1 || y_of(sq_i) == 6)) // if pawn at starting line dy > 1+(1), else dy>1+(0)
+                    return 1;
+            }
+            else if (dx != 1 || dy != 1) // && not empty
+                return 1;
+        }
+        else if (shape == KNIGHT && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
+            return 1;
+
+        else if (shape == BISHOP && dx != dy)
+            return 1;
+
+        else if (shape == ROOK && dx && dy)
+            return 1;
+
+        else if (shape == QUEEN && dx && dy && dx != dy)
+            return 1;
+
+        else if (shape == KING && std::max(dx, dy) > 1)
+            return 1;
+
+        if (shape != KNIGHT && shape != KING && !is_path_clear(sq_i, sq_f, dx, dy))
+            return 6;
+
+        bool is_promote = NULL;
+        unsigned long long _ = NULL;
+        move(_, is_promote, player, shape, sq_i, sq_f);
+        if (is_checked(player))
+        {
+            unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
+            return 7;
+        }
+        unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
+
+        // if all valid
         return 0;
     }
-    board.into_t_table(hash, score, game_depth);
-    return score;
-}
 
-void bot_move(short &best_sq_i, short &best_sq_f)
-{
-    board.move_history[0] = board.hash;
-
-    bool is_PV_node = true, is_promote = NULL, has_child_score = NULL;
-    short child_score = NULL, score = worst_score(BOT, 0);
-    unsigned long long child_hash = NULL;
-    BoardEntry *sq_f_ptr;
-    MVVLVAMoveGenerator moves(BOT, false);
-    std::cout << "Possible {square_i, square_f, score}:" << std::endl;
-    while (moves.next() && score != worst_score(HUMAN, 0))
+    friend std::ostream &operator<<(std::ostream& out, const Engine &engine)
     {
-        child_hash = board.hash;
-        has_child_score = false;
-        sq_f_ptr = board.squares[moves.sq_f];
-        board.move(child_hash, is_promote, BOT, moves.shape_a, moves.sq_i, moves.sq_f);
-        
-        if (!board.is_checked(BOT))
+        const char char_of[MAX_PLAYER][MAX_SHAPE] = {
+            { 'p', 'n', 'b', 'r', 'q', 'k' },
+            { 'P', 'N', 'B', 'R', 'Q', 'K' }
+        };
+        const char TAB[4] = "   ";
+
+        out << "Transposition Table:" << std::endl;
+        short i = NULL;
+        for (const TtableEntry &entry : engine.t_table)
         {
-            child_score = eval(child_hash, HUMAN, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node);
-            has_child_score = true;
-            is_PV_node = false;
+            if (i < 10)
+            {
+                if (entry.hash)
+                {
+                    out << TAB << entry.hash << ", " << entry.score << ", " << entry.game_depth << std::endl;
+                    i++;
+                }
+            }
+            else
+                break;
+        }
+        out << TAB << "... (" << TABLE_SZ - 10 << " more)" << std::endl;
+
+        out << "hash:" << std::endl << TAB << engine.hash << std::endl;
+
+        out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << engine.MAX_PHASE << std::endl << 
+            "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
+
+
+        out << "Worth as opening:" << std::endl;
+        for (short player = BLACK; player <= WHITE; player++)
+        {
+            out << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << engine.psv_opening[player] << std::endl;
+        }
+        out << "Worth as endgame:" << std::endl;
+        for (short player = BLACK; player <= WHITE; player++)
+        {
+            out << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << engine.psv_endgame[player] << std::endl;
         }
 
-        board.unmove(is_promote, BOT, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
-
-        if (has_child_score)
+        out << TAB << "+------------BLACK------------+" << std::endl;
+        for (short sq = 0; sq < AREA; sq++)
         {
-            std::cout << "{" << moves.sq_i << ", " << moves.sq_f << ", " << child_score << "}," << std::endl;
-            if (BOT == MAXER && child_score > score)
+            if (engine.x_of(sq) > 7) // sentinels
             {
-                best_sq_i = moves.sq_i;
-                best_sq_f = moves.sq_f;
-                score = child_score;
+                out << " . . | " << sq - 1 << std::endl;
+                sq++;
             }
-            else if (BOT == MINER && child_score < score)
+            else
             {
-                best_sq_i = moves.sq_i;
-                best_sq_f = moves.sq_f;
-                score = child_score;
+                if (engine.x_of(sq) == 0)
+                    out << std::setw(2) << sq << " |";
+
+                BoardEntry *sq_ptr = engine.squares[sq];
+                if (sq_ptr)
+                    out << std::setw(3) << char_of[sq_ptr->player][sq_ptr->shape];
+                else
+                    out << std::setw(3) << '_';
             }
         }
+        out << TAB << "+------------WHITE------------+" << std::endl;
+        return out;
     }
-}
+};
+
+Engine engine;
 
 void console_play()
 {
@@ -989,36 +988,36 @@ void console_play()
     short sq_i = NULL, sq_f = NULL, invalid = NULL;
     while (true)
     {
-        std::cout << board;
+        std::cout << engine;
         do
         {
             std::cout << "Initial and final 1D coordinates: ";
             std::cin >> sq_i >> sq_f;
-            invalid = board.validate(sq_i, sq_f);
+            invalid = engine.validate(sq_i, sq_f);
             if (invalid)
                 std::cout << "Invalid move, broken rule #" << invalid << std::endl;
         }
         while (invalid);
-        board.move(board.hash, is_promote, HUMAN, board.squares[sq_i]->shape, sq_i, sq_f);
+        engine.move(engine.hash, is_promote, HUMAN, engine.squares[sq_i]->shape, sq_i, sq_f);
         if (is_promote)
             std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
-        board.root_depth++;
+        engine.root_depth++;
         std::cout << std::endl;
 
         sq_i = NULL;
         sq_f = NULL;
-        bot_move(sq_i, sq_f);
+        engine.bot_move(sq_i, sq_f);
         if (!sq_i && !sq_f)
         {
-            std::cout << board;
+            std::cout << engine;
             std::cout << "You won!" << std::endl;
             break;
         }
         else
         {
             std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl;
-            board.move(board.hash, is_promote, BOT, board.squares[sq_i]->shape, sq_i, sq_f);
-            board.root_depth++;
+            engine.move(engine.hash, is_promote, BOT, engine.squares[sq_i]->shape, sq_i, sq_f);
+            engine.root_depth++;
             std::cout << std::endl;
         }
     }
