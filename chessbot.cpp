@@ -986,7 +986,7 @@ Engine engine;
 void console_play()
 {
     bool is_promote = NULL;
-    short sq_i = NULL, sq_f = NULL, invalid = NULL;
+    short sq_i = NULL, sq_f = NULL, error_type = NULL;
     while (true)
     {
         std::cout << engine;
@@ -994,11 +994,11 @@ void console_play()
         {
             std::cout << "Initial and final 1D coordinates: ";
             std::cin >> sq_i >> sq_f;
-            invalid = engine.validate(sq_i, sq_f);
-            if (invalid)
-                std::cout << "Invalid move, broken rule #" << invalid << std::endl;
+            error_type = engine.validate(sq_i, sq_f);
+            if (error_type)
+                std::cout << "Invalid move, broken rule #" << error_type << std::endl;
         }
-        while (invalid);
+        while (error_type);
         engine.move(engine.hash, is_promote, HUMAN, engine.squares[sq_i]->shape, sq_i, sq_f);
         if (is_promote)
             std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
