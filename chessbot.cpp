@@ -113,32 +113,32 @@ struct TtableEntry
     {}
 };
 
+inline short x_of(short sq)
+{
+    return sq % WIDTH;
+}
+
+inline short y_of(short sq)
+{
+    return sq / WIDTH;
+}
+
+inline bool is_play_area(short sq)
+{
+    return unsigned(sq) < AREA && x_of(sq) < PLAY_WIDTH; // if x < 0, it becomes a huge unsigned number > AREA.
+}
+
+/**
+ * @return the forward direction relative to the given player.
+ * With BLACK at the top and WHITE at the bottom, black's forward = +WIDTH, white's forward = -WIDTH.
+ */
+inline short rel_forward(Player player)
+{
+    return (player) ? -WIDTH : WIDTH;
+}
+
 struct Engine
 {
-    inline short x_of(short sq) const
-    {
-        return sq % WIDTH;
-    }
-
-    inline short y_of(short sq) const
-    {
-        return sq / WIDTH;
-    }
-
-    /**
-     * @return the forward direction relative to the given player.
-     * With BLACK at the top and WHITE at the bottom, black's forward = +WIDTH, white's forward = -WIDTH.
-     */
-    inline short rel_forward(Player player) const
-    {
-        return (player) ? -WIDTH : WIDTH;
-    }
-
-    inline bool is_play_area(short sq) const
-    {
-        return unsigned(sq) < AREA && x_of(sq) < PLAY_WIDTH; // if x < 0, it becomes a huge unsigned number > AREA.
-    }
-
     class MVVLVAMoveGenerator
     {
         public:
@@ -230,17 +230,17 @@ struct Engine
                         shape_a = sq_i_ptr->shape;
                         if (shape_a == PAWN)
                         {
-                            short y_i = engine.y_of(sq_i);
+                            short y_i = y_of(sq_i);
                             if (1 <= y_i && y_i <= 6)
                             {
-                                short dy = engine.rel_forward(player), sq_y = sq_i + dy;
+                                short dy = rel_forward(player), sq_y = sq_i + dy;
                                 bool is_promote = (y_i == 1 && dy < 0) || (y_i == 6 && dy > 0);
 
                                 // capture moves
                                 for (short dx = -1; dx <= 1; dx += 2)
                                 {
                                     sq_f = sq_y + dx;
-                                    if (engine.is_play_area(sq_f) && engine.squares[sq_f])
+                                    if (is_play_area(sq_f) && engine.squares[sq_f])
                                     {
                                         const BoardEntry &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;      
@@ -279,7 +279,7 @@ struct Engine
                             for (short v: N_VECTOR)
                             {
                                 sq_f = sq_i + v;
-                                if (engine.is_play_area(sq_f))
+                                if (is_play_area(sq_f))
                                 {
                                     if (!engine.squares[sq_f])
                                         quiet_push();
@@ -298,7 +298,7 @@ struct Engine
                             for (short v: K_VECTOR)
                             {
                                 sq_f = sq_i + v;
-                                if (engine.is_play_area(sq_f))
+                                if (is_play_area(sq_f))
                                 {
                                     if (!engine.squares[sq_f])
                                         quiet_push();
@@ -318,10 +318,10 @@ struct Engine
                             {
                                 for (short v: B_VECTOR)
                                 {
-                                    for (sq_f = sq_i + v; engine.is_play_area(sq_f) && !engine.squares[sq_f]; sq_f += v)
+                                    for (sq_f = sq_i + v; is_play_area(sq_f) && !engine.squares[sq_f]; sq_f += v)
                                         quiet_push();
                                     
-                                    if (engine.is_play_area(sq_f))
+                                    if (is_play_area(sq_f))
                                     {
                                         const BoardEntry &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
@@ -335,10 +335,10 @@ struct Engine
                                 for (short v: R_VECTOR)
                                 {
                                     // travel until on top of a piece
-                                    for (sq_f = sq_i + v; engine.is_play_area(sq_f) && !engine.squares[sq_f]; sq_f += v)
+                                    for (sq_f = sq_i + v; is_play_area(sq_f) && !engine.squares[sq_f]; sq_f += v)
                                         quiet_push();
 
-                                    if (engine.is_play_area(sq_f))
+                                    if (is_play_area(sq_f))
                                     {
                                         const BoardEntry &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
@@ -404,7 +404,7 @@ struct Engine
 
     unsigned long long move_history[MAX_DEPTH] = {0};
 
-    short root_depth = NULL;
+    short root_depth = (BOT == WHITE) ? 0 : 1;
     short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
     short phase = NULL; // sum of SHAPE_PHASE of all current pieces
     short psv_opening[MAX_PLAYER] = {0, 0};
@@ -838,6 +838,7 @@ struct Engine
                 }
             }
         }
+        root_depth += 2; // +1 for human, +1 for bot
     }
 
     /**
@@ -958,14 +959,14 @@ struct Engine
         out << TAB << "+------------BLACK------------+" << std::endl;
         for (short sq = 0; sq < AREA; sq++)
         {
-            if (engine.x_of(sq) > 7) // sentinels
+            if (x_of(sq) > 7) // sentinels
             {
                 out << " . . | " << sq - 1 << std::endl;
                 sq++;
             }
             else
             {
-                if (engine.x_of(sq) == 0)
+                if (x_of(sq) == 0)
                     out << std::setw(2) << sq << " |";
 
                 BoardEntry *sq_ptr = engine.squares[sq];
@@ -999,7 +1000,6 @@ void console_play()
         }
         while (invalid);
         engine.move(engine.hash, is_promote, HUMAN, engine.squares[sq_i]->shape, sq_i, sq_f);
-        engine.root_depth++;
         if (is_promote)
             std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
         std::cout << std::endl;
@@ -1007,7 +1007,6 @@ void console_play()
         sq_i = NULL;
         sq_f = NULL;
         engine.bot_move(sq_i, sq_f);
-        engine.root_depth++;
         if (!sq_i && !sq_f)
         {
             std::cout << engine;
