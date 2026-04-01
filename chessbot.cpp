@@ -352,6 +352,7 @@ struct Engine
                 }
             }
     };
+
     /**
      * pieces
      * └── 0,1: see enum Player
