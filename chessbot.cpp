@@ -405,7 +405,7 @@ struct Engine
 
     unsigned long long move_history[MAX_DEPTH] = {0};
 
-    short root_depth = (BOT == WHITE) ? 0 : 1;
+    short root_depth = (BOT == BLACK); // move counter. Only update when bot move.
     short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
     short phase = NULL; // sum of SHAPE_PHASE of all current pieces
     short psv_opening[MAX_PLAYER] = {0, 0};
