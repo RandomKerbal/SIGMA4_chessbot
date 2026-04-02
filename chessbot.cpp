@@ -789,19 +789,24 @@ struct Engine
             }
         }
         move_history[depth] = NULL;
-        if (score == my_worst_score && !is_checked_i)
-            // stalemate
+        if (score == my_worst_score && !is_checked_i) // stalemate
             score = 0;
         into_t_table(my_hash, score, game_depth);
         return score;
     }
 
-    void bot_move(short &best_sq_i, short &best_sq_f)
+    /**
+     * @return
+     *      mate_type = 0 if game continues.     
+     *      mate_type = 1 if bot is checkmated.
+     *      mate_type = 2 if bot is stalemated.
+     */
+    void bot_move(short &best_sq_i, short &best_sq_f, short &mate_type)
     {
         move_history[0] = hash;
 
-        bool is_PV_node = true, is_promote = NULL, has_child_score = NULL;
-        short child_score = NULL, score = worst_score(BOT, 0);
+        bool is_checked_i = is_checked(BOT), is_PV_node = true, is_promote = NULL, has_child_score = NULL;
+        short child_score = NULL, my_worst_score = worst_score(BOT, 0), score = my_worst_score;
         unsigned long long child_hash = NULL;
         BoardEntry *sq_f_ptr;
         MVVLVAMoveGenerator moves(BOT, false, *this);
@@ -839,6 +844,14 @@ struct Engine
                 }
             }
         }
+        if (score == my_worst_score)
+        {
+            if (!is_checked_i) // stalemated
+                mate_type = 2;
+            else
+                mate_type = 1; // checkmated
+        }
+        mate_type = 0;
         root_depth += 2; // +1 for human, +1 for bot
     }
 
@@ -987,8 +1000,8 @@ Engine engine;
 void console_play()
 {
     bool is_promote = NULL;
-    short sq_i = NULL, sq_f = NULL, error_type = NULL;
-    while (true)
+    short sq_i = NULL, sq_f = NULL, error_type = NULL, mate_type = NULL;
+    while (!mate_type)
     {
         std::cout << engine;
         do
@@ -1005,14 +1018,16 @@ void console_play()
             std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
         std::cout << std::endl;
 
-        sq_i = NULL;
-        sq_f = NULL;
-        engine.bot_move(sq_i, sq_f);
-        if (!sq_i && !sq_f)
+        engine.bot_move(sq_i, sq_f, mate_type);
+        if (mate_type == 1)
         {
             std::cout << engine;
             std::cout << "You won!" << std::endl;
-            break;
+        }
+        else if (mate_type == 2)
+        {
+            std::cout << engine;
+            std::cout << "Draw!" << std::endl;
         }
         else
         {
