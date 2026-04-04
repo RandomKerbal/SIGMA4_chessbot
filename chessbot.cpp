@@ -36,7 +36,7 @@ enum Shape: short {
  */
 const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 };
 
-const short PLAY_WIDTH = 8, SENTL_WIDTH = 2, WIDTH = PLAY_WIDTH + SENTL_WIDTH, AREA = PLAY_WIDTH * WIDTH, MAX_NUM_PIECE = 32;
+const short PLAY_WIDTH = 8, PLAY_AREA = PLAY_WIDTH * PLAY_WIDTH, SENTL_WIDTH = 2, WIDTH = PLAY_WIDTH + SENTL_WIDTH, AREA = PLAY_WIDTH * WIDTH;
 
 /**
  * ZTABLE (Zobrist Table)
@@ -364,9 +364,9 @@ struct Engine
      * 
      * IMPORTANT: Custom FEN positions are supported, but with the following constraints:
      * 1. Each shape has a maximum of 8 pieces.
-     * 2. Each player has a maximum of 32 pieces.
+     * 2. Each player has only 1 KING.
      */
-    Piece pieces[MAX_PLAYER][MAX_NUM_PIECE] = {{}, {}};
+    Piece pieces[MAX_PLAYER][PLAY_AREA-1] = {{}, {}};
     Piece *KING_IND[MAX_PLAYER] = {NULL, NULL};
 
     /** 
@@ -447,10 +447,10 @@ struct Engine
                 // find in pieces[]
                 Piece *my_pieces = pieces[player];
                 short i = 0;
-                for (; i < MAX_NUM_PIECE && (shape >= my_pieces[i].shape); i++) {} // pieces[] is sorted by ascending shape value
+                for (; i < PLAY_AREA && (shape >= my_pieces[i].shape); i++) {} // pieces[] is sorted by ascending shape value
 
                 // move elements at & after i right by 1
-                for (short ii = MAX_NUM_PIECE-1; ii > i; ii--)
+                for (short ii = PLAY_AREA-1; ii > i; ii--)
                     my_pieces[ii] = my_pieces[ii-1];
 
                 my_pieces[i].player = player;
