@@ -2,6 +2,7 @@
 #include <climits>
 #include <iostream>
 #include <iomanip>
+#include <cctype>
 #include <vector>
 
 const short MAX_DEPTH = 7;
@@ -35,7 +36,7 @@ enum Shape: short {
  */
 const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 };
 
-const short PLAY_WIDTH = 8, WIDTH = PLAY_WIDTH + 2, AREA = PLAY_WIDTH*WIDTH, MAX_NUM_PIECE = 16;
+const short PLAY_WIDTH = 8, SENTL_WIDTH = 2, WIDTH = PLAY_WIDTH + SENTL_WIDTH, AREA = PLAY_WIDTH * WIDTH, MAX_NUM_PIECE = 32;
 
 /**
  * ZTABLE (Zobrist Table)
@@ -93,13 +94,13 @@ const short R_VECTOR[4] = {
 };
 // no Q_VECTOR since it's a combination of B_VECTOR & R_VECTOR
 
-struct BoardEntry
+struct Piece
 {
     Player player;
     Shape shape;
     short sq;
 
-    BoardEntry(Player player = BLACK, Shape shape = PAWN, short sq = -1) : player(player), shape(shape), sq(sq)
+    Piece(Player player = MAX_PLAYER, Shape shape = MAX_SHAPE, short sq = -1) : player(player), shape(shape), sq(sq)
     {}
 };
 const size_t TABLE_SZ = 1 << 22; // must be power of 2
@@ -191,7 +192,7 @@ struct Engine
              * 
              * quiet_moves has - shape,sq_i,sq_f, shape,sq_i,sq_f, ...
              */
-            short moves[KING][MAX_SHAPE][MAX_2NUM_AXB] = {{{0}}}, moves_end[KING][MAX_SHAPE] = {{0}}, i_v = NULL, i_a = NULL, i = NULL;
+            short moves[KING][MAX_SHAPE][MAX_2NUM_AXB] = {{{NULL}}}, moves_end[KING][MAX_SHAPE] = {{NULL}}, i_v = NULL, i_a = NULL, i = NULL;
             bool is_QS = NULL;
             const Engine &engine;
             std::vector<short> quiet_moves;
@@ -222,7 +223,7 @@ struct Engine
             void gen_MVVLVA_moves(Player player)
             {
                 quiet_moves.reserve(MAX_3NUM_AXB);
-                for (const BoardEntry *sq_i_ptr = engine.pieces[player]; sq_i_ptr <= engine.KING_IND[player]; sq_i_ptr++)
+                for (const Piece *sq_i_ptr = engine.pieces[player]; sq_i_ptr <= engine.KING_IND[player]; sq_i_ptr++)
                 {
                     sq_i = sq_i_ptr->sq;
                     if (sq_i >= 0) // if not captured
@@ -242,7 +243,7 @@ struct Engine
                                     sq_f = sq_y + dx;
                                     if (is_play_area(sq_f) && engine.squares[sq_f])
                                     {
-                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;      
                                         if (piece.player != player && shape_v != KING)
                                         {
@@ -285,7 +286,7 @@ struct Engine
                                         quiet_push();
                                     else
                                     {
-                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
                                             MVVLVA_insert(shape_v);
@@ -304,7 +305,7 @@ struct Engine
                                         quiet_push();
                                     else
                                     {
-                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
                                             MVVLVA_insert(shape_v);
@@ -323,7 +324,7 @@ struct Engine
                                     
                                     if (is_play_area(sq_f))
                                     {
-                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
                                             MVVLVA_insert(shape_v);
@@ -340,7 +341,7 @@ struct Engine
 
                                     if (is_play_area(sq_f))
                                     {
-                                        const BoardEntry &piece = *engine.squares[sq_f];
+                                        const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
                                             MVVLVA_insert(shape_v);
@@ -356,35 +357,17 @@ struct Engine
     /**
      * pieces
      * └── 0,1: see enum Player
-     *     └── 0...16: max total number of pieces of each player
+     *     └── 0...32
      *         └── piece: { player, shape, sq }
      * 
      * If an piece is captured, its sq = sq - AREA.
      * 
-     * IMPORTANT: Custom board sizes and positions are supported, but with the following constraints:
-     * 1. First element must be PAWN. Last element must be KING.
-     * 2. Each shape has a maximum of 8 pieces.
-     * 3. Remember to change MAX_NUM_PIECE.
+     * IMPORTANT: Custom FEN positions are supported, but with the following constraints:
+     * 1. Each shape has a maximum of 8 pieces.
+     * 2. Each player has a maximum of 32 pieces.
      */
-    BoardEntry pieces[MAX_PLAYER][MAX_NUM_PIECE] = {
-        {   // black
-            { BLACK, PAWN,  10 }, { BLACK, PAWN,  11 }, { BLACK, PAWN, 12 }, { BLACK, PAWN, 13 }, { BLACK, PAWN, 14 }, { BLACK, PAWN, 15 }, { BLACK, PAWN, 16 }, { BLACK, PAWN, 17 },
-            { BLACK, KNIGHT, 1 }, { BLACK, KNIGHT, 6 },
-            { BLACK, BISHOP, 2 }, { BLACK, BISHOP, 5 },
-            { BLACK, ROOK,   0 }, { BLACK, ROOK,   7 },
-            { BLACK, QUEEN,  3 },
-            { BLACK, KING,   4 }
-        },
-        {   // white
-            { WHITE, PAWN,   60 }, { WHITE, PAWN,   61 }, { WHITE, PAWN, 62 }, { WHITE, PAWN, 63 }, { WHITE, PAWN, 64 }, { WHITE, PAWN, 65 }, { WHITE, PAWN, 66 }, { WHITE, PAWN, 67 },
-            { WHITE, KNIGHT, 71 }, { WHITE, KNIGHT, 76 },
-            { WHITE, BISHOP, 72 }, { WHITE, BISHOP, 75 },
-            { WHITE, ROOK,   70 }, { WHITE, ROOK,   77 },
-            { WHITE, QUEEN,  73 },
-            { WHITE, KING,   74 }
-        }
-    };
-    const BoardEntry *KING_IND[MAX_PLAYER] = { &pieces[BLACK][MAX_NUM_PIECE-1], &pieces[WHITE][MAX_NUM_PIECE-1] };
+    Piece pieces[MAX_PLAYER][MAX_NUM_PIECE] = {{}, {}};
+    Piece *KING_IND[MAX_PLAYER] = {NULL, NULL};
 
     /** 
      * squares
@@ -397,26 +380,92 @@ struct Engine
      * The squares is 10x8 since the two rightmost columns are sentinels that prevent
      * iterators from "wrapping" onto the previous/next row. Sentinels/empties are nullptr to identify easily using !squares[sq].
      */
-    BoardEntry *squares[AREA] = {nullptr};
+    Piece *squares[AREA] = {nullptr};
 
     unsigned long long hash = NULL;
 
     TtableEntry t_table[TABLE_SZ]; // Transposition Table
 
-    unsigned long long move_history[MAX_DEPTH] = {0};
+    unsigned long long move_history[MAX_DEPTH] = {NULL};
 
     short root_depth = (BOT == BLACK); // move counter. Only update when bot move.
     short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
     short phase = NULL; // sum of SHAPE_PHASE of all current pieces
-    short psv_opening[MAX_PLAYER] = {0, 0};
-    short psv_endgame[MAX_PLAYER] = {0, 0};
+    short psv_opening[MAX_PLAYER] = {NULL, NULL};
+    short psv_endgame[MAX_PLAYER] = {NULL, NULL};
 
-    Engine()
+    Engine(const char *FEN)
     {
+        std::cout << "============= SIGMA4 CHESSBOT =============" << std::endl
+            << "Made by RandomKerbal" << std::endl
+            << "Castling & En passant are not supported." << std::endl
+            << "===========================================" << std::endl << std::endl;
+
+        // init pieces[]
+        char ch = NULL;
+        short sq = 0;
+        Player player;
+        Shape shape;
+        for (const char* ch_ptr = FEN; *ch_ptr != 0; ch_ptr++)
+        {
+            ch = *ch_ptr;
+            if (isdigit(ch))
+            {
+                short i = atoi(ch_ptr);
+                for (; i > 0; i--)
+                    sq++;
+            }
+            else if (isalpha(ch))
+            {
+                if (isupper(ch))
+                    player = WHITE;
+                else
+                    player = BLACK;
+
+                switch (toupper(ch))
+                {
+                    case 'P':
+                        shape = PAWN;
+                        break;
+                    case 'N':
+                        shape = KNIGHT;
+                        break;
+                    case 'B':
+                        shape = BISHOP;
+                        break;
+                    case 'R':
+                        shape = ROOK;
+                        break;
+                    case 'Q':
+                        shape = QUEEN;
+                        break;
+                    case 'K':
+                        shape = KING;
+                        break;
+                }
+
+                // find in pieces[]
+                Piece *my_pieces = pieces[player];
+                short i = 0;
+                for (; i < MAX_NUM_PIECE && (shape >= my_pieces[i].shape); i++) {} // pieces[] is sorted by ascending shape value
+
+                // move elements at & after i right by 1
+                for (short ii = MAX_NUM_PIECE-1; ii > i; ii--)
+                    my_pieces[ii] = my_pieces[ii-1];
+
+                my_pieces[i].player = player;
+                my_pieces[i].shape = shape;
+                my_pieces[i].sq = sq;
+                sq++;
+            }
+            else if (ch == '/')
+                sq += SENTL_WIDTH;
+        }
+
         for (short player = BLACK; player <= WHITE; player++)
         {
-            // NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
-            for (BoardEntry &piece : pieces[player])
+            // init NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
+            for (Piece &piece : pieces[player])
             {
                 short sq = piece.sq;
                 if (sq >= 0)
@@ -451,8 +500,8 @@ struct Engine
 
     inline void move(unsigned long long &my_hash, bool &is_promote, Player player, Shape shape, short sq_i, short sq_f)
     {
-        BoardEntry *sq_i_ptr = squares[sq_i];
-        BoardEntry *sq_f_ptr = squares[sq_f];
+        Piece *sq_i_ptr = squares[sq_i];
+        Piece *sq_f_ptr = squares[sq_f];
 
         // capture
         if (sq_f_ptr)
@@ -495,9 +544,9 @@ struct Engine
      * 2. Same sq_i & sq_f as doing move.
      * 3. Same shape as before promotion (promoted QUEEN still has shape = PAWN).
      */
-    inline void unmove(bool is_promote, Player player, Shape shape, short sq_i, short sq_f, BoardEntry *prev_sq_f_ptr)
+    inline void unmove(bool is_promote, Player player, Shape shape, short sq_i, short sq_f, Piece *prev_sq_f_ptr)
     {
-        BoardEntry *sq_f_ptr = squares[sq_f];
+        Piece *sq_f_ptr = squares[sq_f];
         sq_f_ptr->sq = sq_i;
         add_psv(player, shape, sq_i);
 
@@ -554,7 +603,7 @@ struct Engine
                 sq_a = sq_y + dx;
                 if (is_play_area(sq_a) && squares[sq_a])
                 {
-                    const BoardEntry &attacker = *squares[sq_a];
+                    const Piece &attacker = *squares[sq_a];
                     if (attacker.player != player && attacker.shape == PAWN)
                         return true;
                 }
@@ -563,7 +612,7 @@ struct Engine
 
         // check for enemy KNIGHT, BISHOP, ROOK, QUEEN, KING by iterating over each piece
         Shape shape_a;
-        for (BoardEntry *attacker = pieces[!player]; attacker <= KING_IND[!player]; attacker++)
+        for (Piece *attacker = pieces[!player]; attacker <= KING_IND[!player]; attacker++)
         {
             sq_a = attacker->sq;
             shape_a = attacker->shape;
@@ -647,7 +696,7 @@ struct Engine
         bool is_promote = NULL, has_child_score = NULL;
         short child_score = NULL;
         unsigned long long child_hash = NULL;
-        BoardEntry *sq_f_ptr;
+        Piece *sq_f_ptr;
         MVVLVAMoveGenerator moves(player, true, *this);
         while (moves.next())
         {
@@ -739,7 +788,7 @@ struct Engine
         bool is_promote = NULL, has_child_score = NULL;
         short my_worst_score = worst_score(player, depth), score = my_worst_score, game_depth = NULL;
         unsigned long long child_hash = NULL;
-        BoardEntry *sq_f_ptr;
+        Piece *sq_f_ptr;
         MVVLVAMoveGenerator moves(player, false, *this);
         while (moves.next())
         {
@@ -808,7 +857,7 @@ struct Engine
         bool is_checked_i = is_checked(BOT), is_PV_node = true, is_promote = NULL, has_child_score = NULL;
         short child_score = NULL, my_worst_score = worst_score(BOT, 0), score = my_worst_score;
         unsigned long long child_hash = NULL;
-        BoardEntry *sq_f_ptr;
+        Piece *sq_f_ptr;
         MVVLVAMoveGenerator moves(BOT, false, *this);
         std::cout << "Possible {square_i, square_f, score}:" << std::endl;
         while (moves.next() && score != worst_score(HUMAN, 0))
@@ -864,7 +913,7 @@ struct Engine
         if (!is_play_area(sq_i) || !is_play_area(sq_f))
             return 2;
 
-        BoardEntry *sq_i_ptr = squares[sq_i], *sq_f_ptr = squares[sq_f];
+        Piece *sq_i_ptr = squares[sq_i], *sq_f_ptr = squares[sq_f];
         if (!sq_i_ptr)
             return 3;
 
@@ -958,7 +1007,6 @@ struct Engine
         out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << engine.MAX_PHASE << std::endl << 
             "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
 
-
         out << "Worth as opening:" << std::endl;
         for (short player = BLACK; player <= WHITE; player++)
         {
@@ -970,22 +1018,54 @@ struct Engine
             out << TAB << '[' << (player ? "WHITE" : "BLACK") << "]=" << engine.psv_endgame[player] << std::endl;
         }
 
+        out << "FEN:" << std::endl << TAB;
+        short count = 0;
+        for (short sq = 0; sq < AREA; sq++)
+        {
+            if (x_of(sq) == 8)
+            {
+                if (count)
+                {
+                    out << count;
+                    count = 0;
+                }
+                out << '/';
+                sq++; // skip col 9
+            }
+            else
+            {
+                Piece *piece = engine.squares[sq];
+                if (piece)
+                {
+                    if (count)
+                    {
+                        out << count;
+                        count = 0;
+                    }
+                    out << char_of[piece->player][piece->shape];
+                }
+                else
+                    count++;
+            }
+        }
+        out << std::endl;
+
         out << TAB << "+------------BLACK------------+" << std::endl;
         for (short sq = 0; sq < AREA; sq++)
         {
-            if (x_of(sq) > 7) // sentinels
+            if (x_of(sq) == 8) // sentinels
             {
                 out << " . . | " << sq - 1 << std::endl;
-                sq++;
+                sq++; // skip col 9
             }
             else
             {
                 if (x_of(sq) == 0)
                     out << std::setw(2) << sq << " |";
 
-                BoardEntry *sq_ptr = engine.squares[sq];
-                if (sq_ptr)
-                    out << std::setw(3) << char_of[sq_ptr->player][sq_ptr->shape];
+                Piece *piece = engine.squares[sq];
+                if (piece)
+                    out << std::setw(3) << char_of[piece->player][piece->shape];
                 else
                     out << std::setw(3) << '_';
             }
@@ -995,7 +1075,7 @@ struct Engine
     }
 };
 
-Engine engine;
+Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"); // assume FEN is correct
 
 void console_play()
 {
