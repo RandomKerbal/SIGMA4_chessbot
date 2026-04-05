@@ -35,7 +35,7 @@ enum Shape: short {
  */
 const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 };
 
-const short PLAY_WIDTH = 8, PLAY_AREA = PLAY_WIDTH * PLAY_WIDTH, SENTL_WIDTH = 2, WIDTH = PLAY_WIDTH + SENTL_WIDTH, AREA = PLAY_WIDTH * WIDTH;
+const short PLAY_WIDTH = 8, MAX_PIECES = PLAY_WIDTH * PLAY_WIDTH - 1, SENTL_WIDTH = 2, WIDTH = PLAY_WIDTH + SENTL_WIDTH, AREA = PLAY_WIDTH * WIDTH;
 
 /**
  * ZTABLE (Zobrist Table)
@@ -365,7 +365,7 @@ struct Engine
      * 1. Each shape has a maximum of 8 pieces.
      * 2. Each player has exactly 1 KING.
      */
-    Piece pieces[MAX_PLAYER][PLAY_AREA-1] = {{}, {}};
+    Piece pieces[MAX_PLAYER][MAX_PIECES] = {{}, {}};
     Piece *KING_IND[MAX_PLAYER] = {NULL, NULL};
 
     /** 
@@ -407,11 +407,8 @@ struct Engine
         {
             ch = *ch_ptr;
             if (isdigit(ch))
-            {
-                short i = atoi(ch_ptr);
-                for (; i > 0; i--)
-                    sq++;
-            }
+                sq += ch - '0';
+
             else if (isalpha(ch))
             {
                 my_player = isupper(ch) ? HUMAN : BOT;
@@ -440,10 +437,11 @@ struct Engine
                 // find in pieces[]
                 Piece *my_pieces = pieces[my_player];
                 short i = 0;
-                for (; i < PLAY_AREA && (shape >= my_pieces[i].shape); i++) {} // pieces[] is sorted by ascending shape value
+                for (; i < MAX_PIECES && (shape > my_pieces[i].shape); i++) // pieces[] is sorted by ascending shape value
+                {}
 
                 // move elements at & after i right by 1
-                for (short ii = PLAY_AREA-1; ii > i; ii--)
+                for (short ii = MAX_PIECES-1; ii > i; ii--)
                     my_pieces[ii] = my_pieces[ii-1];
 
                 my_pieces[i].player = my_player;
@@ -1081,7 +1079,7 @@ struct Engine
     }
 };
 
-Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"); // assume FEN is correct
+Engine engine("8/5k2/3p4/1p1Pp2p/pP2Pp1P/P4P1K/8/8 w"); // assume FEN is correct
 
 void console_play()
 {
