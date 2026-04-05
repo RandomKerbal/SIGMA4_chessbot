@@ -1079,7 +1079,7 @@ struct Engine
     }
 };
 
-Engine engine("8/5k2/3p4/1p1Pp2p/pP2Pp1P/P4P1K/8/8 w"); // assume FEN is correct
+Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"); // assume FEN is correct
 
 void console_play()
 {
