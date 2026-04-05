@@ -357,13 +357,13 @@ struct Engine
      * pieces
      * └── 0,1: see enum Player
      *     └── 0...32
-     *         └── piece: { player, shape, sq }
+     *         └── see struct Piece
      * 
      * If an piece is captured, its sq = sq - AREA.
      * 
      * IMPORTANT: Custom FEN positions are supported, but with the following constraints:
      * 1. Each shape has a maximum of 8 pieces.
-     * 2. Each player has only 1 KING.
+     * 2. Each player has exactly 1 KING.
      */
     Piece pieces[MAX_PLAYER][PLAY_AREA-1] = {{}, {}};
     Piece *KING_IND[MAX_PLAYER] = {NULL, NULL};
@@ -1013,14 +1013,14 @@ struct Engine
             "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
 
         out << "Worth as opening:" << std::endl;
-        for (short player = BOT; player <= HUMAN; player++)
+        for (short my_player = BOT; my_player <= HUMAN; my_player++)
         {
-            out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_opening[player] << std::endl;
+            out << TAB << '[' << (my_player ? "HUMAN" : "BOT") << "]=" << engine.psv_opening[my_player] << std::endl;
         }
         out << "Worth as endgame:" << std::endl;
-        for (short player = BOT; player <= HUMAN; player++)
+        for (short my_player = BOT; my_player <= HUMAN; my_player++)
         {
-            out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_endgame[player] << std::endl;
+            out << TAB << '[' << (my_player ? "HUMAN" : "BOT") << "]=" << engine.psv_endgame[my_player] << std::endl;
         }
 
         out << "FEN:" << std::endl << TAB;
