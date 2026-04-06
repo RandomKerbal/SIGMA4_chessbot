@@ -670,7 +670,7 @@ struct Engine
 
     inline short worst_score(Player my_player, short depth)
     {
-        return (my_player == MAXER) ? SHRT_MIN + depth : SHRT_MAX - depth; // earlier checkmate worst than later
+        return (my_player == MAXER) ? SHRT_MIN + depth : SHRT_MAX - depth; // earlier checkmate preferred over later
     }
 
     short QS_eval(const unsigned long long &my_hash, Player my_player, short alpha, short beta)
@@ -1026,14 +1026,14 @@ struct Engine
         short count = 0;
         for (short sq = 0; sq < AREA; sq++)
         {
-            if (x_of(sq) == 8)
+            if (x_of(sq) == PLAY_WIDTH)
             {
                 if (count)
                 {
                     out << count;
                     count = 0;
                 }
-                if (sq != 78)
+                if (sq != AREA - SENTL_WIDTH)
                     out << '/';
                 sq++; // skip col 9
             }
@@ -1058,7 +1058,7 @@ struct Engine
         out << TAB << "+-------------BOT-------------+" << std::endl;
         for (short sq = 0; sq < AREA; sq++)
         {
-            if (x_of(sq) == 8) // sentinels
+            if (x_of(sq) == PLAY_WIDTH) // sentinels
             {
                 out << " . . | " << sq - 1 << std::endl;
                 sq++; // skip col 9
