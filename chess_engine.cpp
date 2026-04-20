@@ -20,11 +20,13 @@ enum Player: short {
 };
 inline Player operator!(Player player)
 {
-    return Player(player^1);
+    return Player(player ^ 1);
 }
+
 enum Shape: short {
     PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5,
-    MAX_SHAPE = 6
+    MAX_SHAPE = 6,
+    K_SIDE = 0, Q_SIDE = 1
 };
 /**
  * SHAPE_PHASE
@@ -234,7 +236,7 @@ struct Engine
                             if (1 <= y_i && y_i <= 6)
                             {
                                 short dy = rel_forward(player), sq_y = sq_i + dy;
-                                bool is_promote = (y_i == 1 && dy < 0) || (y_i == 6 && dy > 0);
+                                bool is_promote = (y_i == 1 && !player) || (y_i == 6 && player);
 
                                 // capture moves
                                 for (short dx = -1; dx <= 1; dx += 2)
@@ -264,7 +266,7 @@ struct Engine
                                     {
                                         quiet_push();
 
-                                        if ((y_i == 1 && dy > 0) || (y_i == 6 && dy < 0)) // can step 2
+                                        if ((y_i == 1 && !player) || (y_i == 6 && player)) // can step 2
                                         {
                                             sq_f += dy;
                                             if (!engine.squares[sq_f])
@@ -356,14 +358,10 @@ struct Engine
     /**
      * pieces
      * └── 0,1: see enum Player
-     *     └── 0...32
+     *     └── 0...63
      *         └── see struct Piece
      * 
-     * If an piece is captured, its sq = sq - AREA.
-     * 
-     * IMPORTANT: Custom FEN positions are supported, but with the following constraints:
-     * 1. Each shape has a maximum of 8 pieces.
-     * 2. Each player has exactly 1 KING.
+     * If an piece is captured, its sq = sq - AREA
      */
     Piece pieces[MAX_PLAYER][MAX_PIECES] = {{}, {}};
     Piece *KING_IND[MAX_PLAYER] = {NULL, NULL};
@@ -387,6 +385,12 @@ struct Engine
 
     unsigned long long move_history[MAX_DEPTH] = {NULL};
 
+    /** 
+     * can_castle (castle)
+     * └── 0,1: see enum Player
+     *     └── 0 = kingside, 1 = queenside
+     */
+    bool can_castle[MAX_PLAYER][2] = {{false}};
     Player player;
     short root_depth = NULL; // move counter, but only update when bot move
     short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
@@ -403,7 +407,7 @@ struct Engine
         Player my_player;
         Shape shape;
         // FEN field 1
-        for (; *ch_ptr != 0 && *ch_ptr != ' '; ch_ptr++)
+        for (; *ch_ptr && *ch_ptr != ' '; ch_ptr++)
         {
             ch = *ch_ptr;
             if (isdigit(ch))
@@ -411,7 +415,7 @@ struct Engine
 
             else if (isalpha(ch))
             {
-                my_player = isupper(ch) ? HUMAN : BOT;
+                my_player = Player(bool(isupper(ch))); // cast to bool since isupper returns non-zero for uppercase
                 switch (toupper(ch))
                 {
                     case 'P':
@@ -453,10 +457,30 @@ struct Engine
                 sq += SENTL_WIDTH;
         }
         // FEN field 2
-        if (*ch_ptr != 0)
+        if (*ch_ptr)
         {
             ch_ptr++;
             player = (*ch_ptr == 'w') ? HUMAN : BOT;
+            ch_ptr++;
+        }
+        // FEN field 3
+        if (*ch_ptr)
+        {
+            ch_ptr++;
+            for (; *ch_ptr && *ch_ptr != ' '; ch_ptr++)
+            {
+                ch = *ch_ptr;
+                my_player = Player(bool(isupper(ch)));
+                switch (toupper(ch))
+                {
+                    case 'K':
+                        can_castle[my_player][K_SIDE] = true;
+                        break;
+                    case 'Q':
+                        can_castle[my_player][Q_SIDE] = true;
+                        break;
+                }
+            }
         }
 
         root_depth = (player == HUMAN);
@@ -503,7 +527,7 @@ struct Engine
         psv_endgame[my_player] -= PST_ENDGAME[my_player][shape][sq];
     }
 
-    inline void move(unsigned long long &my_hash, bool &is_promote, Player my_player, Shape shape, short sq_i, short sq_f)
+    inline void move(unsigned long long &my_hash, bool &is_promote, bool &is_castle, Player my_player, Shape shape, short sq_i, short sq_f)
     {
         Piece *sq_i_ptr = squares[sq_i];
         Piece *sq_f_ptr = squares[sq_f];
@@ -519,9 +543,6 @@ struct Engine
             del_psv(del_player, del_shape, sq_f);
             my_hash ^= ZTABLE[del_player][del_shape][sq_f];
         }
-        sq_i_ptr->sq = sq_f;
-        del_psv(my_player, shape, sq_i);
-        my_hash ^= ZTABLE[my_player][shape][sq_i] ^ Z_PLAYER;
 
         // promotion
         if (shape == PAWN && (sq_f < WIDTH || sq_f >= AREA-WIDTH))
@@ -536,24 +557,73 @@ struct Engine
         {
             add_psv(my_player, shape, sq_f);
             my_hash ^= ZTABLE[my_player][shape][sq_f];
-            is_promote = false;
         }
 
+        // castle
+        if (shape == KING && abs(sq_f - sq_i) == 2)
+        {
+            short sq_i_rook = NULL, sq_f_rook = NULL;
+            if (sq_f > sq_i) // kingside
+            {
+                sq_i_rook = sq_f - (sq_f % WIDTH) + 7;
+                sq_f_rook = sq_f - 1;
+
+            }
+            else // queenside
+            {
+                sq_i_rook = sq_f - (sq_f % WIDTH);
+                sq_f_rook = sq_f + 1;
+            }
+            Piece *sq_i_rook_ptr = squares[sq_i_rook];
+            sq_i_rook_ptr->sq = sq_f_rook;
+            squares[sq_f_rook] = sq_i_rook_ptr;
+            squares[sq_i_rook] = nullptr;
+
+            del_psv(my_player, ROOK, sq_i_rook);
+            add_psv(my_player, ROOK, sq_f_rook);
+            is_castle = true;
+        }
+
+        sq_i_ptr->sq = sq_f;
         squares[sq_f] = sq_i_ptr;
         squares[sq_i] = nullptr;
+        del_psv(my_player, shape, sq_i);
+        my_hash ^= ZTABLE[my_player][shape][sq_i] ^ Z_PLAYER;
     }
 
     /**
      * IMPORTANT:
      * 1. Doesn't undo child_hash.
-     * 2. Same sq_i & sq_f as doing move.
+     * 2. Same sq_i & sq_f as in move().
      * 3. Same shape as before promotion (promoted QUEEN still has shape = PAWN).
      */
-    inline void unmove(bool is_promote, Player my_player, Shape shape, short sq_i, short sq_f, Piece *prev_sq_f_ptr)
+    inline void unmove(bool is_promote, bool is_castle, Player my_player, Shape shape, short sq_i, short sq_f, Piece *prev_sq_f_ptr)
     {
         Piece *sq_f_ptr = squares[sq_f];
-        sq_f_ptr->sq = sq_i;
-        add_psv(my_player, shape, sq_i);
+
+        // uncastle
+        if (is_castle)
+        {
+            short sq_i_rook = NULL, sq_f_rook = NULL;
+            if (sq_f > sq_i) // kingside castle
+            {
+                sq_i_rook = sq_f - (sq_f % WIDTH) + 7;
+                sq_f_rook = sq_f - 1;
+
+            }
+            else // queenside castle
+            {
+                sq_i_rook = sq_f - (sq_f % WIDTH);
+                sq_f_rook = sq_f + 1;
+            }
+            Piece *sq_f_rook_ptr = squares[sq_f_rook];
+            sq_f_rook_ptr->sq = sq_i_rook;
+            squares[sq_i_rook] = sq_f_rook_ptr;
+            squares[sq_f_rook] = nullptr;
+
+            add_psv(my_player, ROOK, sq_i_rook);
+            del_psv(my_player, ROOK, sq_f_rook);
+        }
 
         // demotion
         if (is_promote)
@@ -576,16 +646,18 @@ struct Engine
             add_psv(add_player, add_shape, sq_f);
         }
 
+        sq_f_ptr->sq = sq_i;
         squares[sq_i] = sq_f_ptr;
         squares[sq_f] = prev_sq_f_ptr;
+        add_psv(my_player, shape, sq_i);
     }
 
     /**
-     * @return whether all entries on the path are empty.
+     * @return whether all squares on the path (excluding sq_f) are empty.
      */
-    inline bool is_path_clear(short sq_i, short sq_f, unsigned short dx, unsigned short dy)
+    inline bool is_path_clear(short sq_i, short sq_f, short &d_cheby)
     {
-        short v = (sq_f - sq_i) / std::max(dx, dy);
+        short v = (sq_f - sq_i) / d_cheby;
         for (short sq = sq_i + v; sq != sq_f; sq += v)
         {
             if (squares[sq])
@@ -600,7 +672,7 @@ struct Engine
     inline bool is_checked(Player my_player)
     {
         // check for enemy pawns by posing as pawn and check where I can capture
-        short dx = NULL, dy = NULL, sq_a = NULL, sq_k = KING_IND[my_player]->sq;
+        short dx = NULL, dy = NULL, d_cheby = NULL, sq_a = NULL, sq_k = KING_IND[my_player]->sq;
         {
             short sq_y = sq_k + rel_forward(my_player);
             for (dx = -1; dx <= 1; dx += 2)
@@ -625,19 +697,21 @@ struct Engine
             {
                 dx = abs(x_of(sq_a) - x_of(sq_k));
                 dy = abs(y_of(sq_a) - y_of(sq_k));
+                d_cheby = std::max(dx, dy);
+
                 if (shape_a == KNIGHT && ((dx == 1 && dy == 2) || (dx == 2 && dy == 1)))
                     return true;
 
-                else if (shape_a == KING && std::max(dx, dy) <= 1)
+                else if (shape_a == KING && d_cheby <= 1)
                     return true;
 
-                else if (shape_a == BISHOP && dx == dy && is_path_clear(sq_k, sq_a, dx, dy))
+                else if (shape_a == BISHOP && dx == dy && is_path_clear(sq_k, sq_a, d_cheby))
                     return true;
 
-                else if (shape_a == ROOK && (dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, dx, dy))
+                else if (shape_a == ROOK && (dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, d_cheby))
                     return true;
 
-                else if (shape_a == QUEEN && (dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, dx, dy))
+                else if (shape_a == QUEEN && (dx == dy || dx == 0 || dy == 0) && is_path_clear(sq_k, sq_a, d_cheby))
                     return true;
             }
         }
@@ -698,7 +772,7 @@ struct Engine
             }
         }
 
-        bool is_promote = NULL, has_child_score = NULL;
+        bool is_promote = false, is_castle = false, has_child_score = NULL;
         short child_score = NULL;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
@@ -708,7 +782,7 @@ struct Engine
             child_hash = my_hash;
             has_child_score = false;
             sq_f_ptr = squares[moves.sq_f];
-            move(child_hash, is_promote, my_player, moves.shape_a, moves.sq_i, moves.sq_f);
+            move(child_hash, is_promote, is_castle, my_player, moves.shape_a, moves.sq_i, moves.sq_f);
 
             const TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
             if (child_hash == child_entry.hash)
@@ -722,7 +796,7 @@ struct Engine
                 has_child_score = true;
             }
 
-            unmove(is_promote, my_player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+            unmove(is_promote, is_castle, my_player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
             if (has_child_score)
             {
@@ -754,11 +828,11 @@ struct Engine
      * Minimax + Tapered Piece-Square Table Evaluation + AlphaBeta Pruning + Null-Move Prunning + Zobrist Hashing Transposition Table + MVV-LVA + Repetition Check + Quiescence Search + Standing Pat
      * In first call, use depth = 1, alpha = SHRT_MIN, beta = SHRT_MAX.
      * @return
-     *      n ∈ (SHRT_MIN, 0) U (0, SHRT_MAX) if over MAX_DEPTH.
-     *      n = SHRT_MAX if check/stalemated by MAXER.
-     *      n = SHRT_MIN if check/stalemated by MINER.
+     * n ∈ (SHRT_MIN, 0) U (0, SHRT_MAX) if over MAX_DEPTH.
+     * n = SHRT_MAX if check/stalemated by MAXER.
+     * n = SHRT_MIN if check/stalemated by MINER.
      */
-    short eval(unsigned long long my_hash, Player my_player, short depth, short alpha, short beta, bool is_NM_eval, bool is_PV_node)
+    short eval(unsigned long long my_hash, Player my_player, short depth, short alpha, short beta, bool is_NM_eval, bool is_PV_node)//, bool can_castle_K, bool can_castle_Q)
     {
         if (depth == MAX_DEPTH)
             return QS_eval(my_hash, my_player, alpha, beta);
@@ -790,7 +864,7 @@ struct Engine
             }
         }
 
-        bool is_promote = NULL, has_child_score = NULL;
+        bool is_promote = false, is_castle = false, has_child_score = NULL;
         short my_worst_score = worst_score(my_player, depth), score = my_worst_score, game_depth = NULL;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
@@ -800,7 +874,7 @@ struct Engine
             child_hash = my_hash;
             has_child_score = false;
             sq_f_ptr = squares[moves.sq_f];
-            move(child_hash, is_promote, my_player, moves.shape_a, moves.sq_i, moves.sq_f);
+            move(child_hash, is_promote, is_castle, my_player, moves.shape_a, moves.sq_i, moves.sq_f);
 
             const TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
             game_depth = root_depth + depth;
@@ -816,7 +890,7 @@ struct Engine
                 is_PV_node = false;
             }
 
-            unmove(is_promote, my_player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+            unmove(is_promote, is_castle, my_player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
             if (has_child_score)
             {
@@ -851,15 +925,15 @@ struct Engine
 
     /**
      * @return
-     *      mate_type = 0 if game continues.     
-     *      mate_type = 1 if bot is checkmated.
-     *      mate_type = 2 if bot is stalemated.
+     * mate_type = 0 if game continues    
+     * mate_type = 1 if bot is checkmated
+     * mate_type = 2 if bot is stalemated
      */
     void bot_move(short &best_sq_i, short &best_sq_f, short &mate_type)
     {
         move_history[0] = hash;
 
-        bool is_checked_i = is_checked(player), is_PV_node = true, is_promote = NULL, has_child_score = NULL;
+        bool is_checked_i = is_checked(player), is_PV_node = true, is_promote = false, is_castle = false, has_child_score = NULL;
         short child_score = NULL, my_worst_score = worst_score(player, 0), score = my_worst_score;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
@@ -870,7 +944,7 @@ struct Engine
             child_hash = hash;
             has_child_score = false;
             sq_f_ptr = squares[moves.sq_f];
-            move(child_hash, is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f);
+            move(child_hash, is_promote, is_castle, player, moves.shape_a, moves.sq_i, moves.sq_f);
             
             if (!is_checked(player))
             {
@@ -879,7 +953,7 @@ struct Engine
                 is_PV_node = false;
             }
 
-            unmove(is_promote, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+            unmove(is_promote, is_castle, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
             if (has_child_score)
             {
@@ -912,7 +986,14 @@ struct Engine
 
     /**
      * @return whether move is valid.
-     * 0: valid. 1: illegal move vector. 2: outside play area. 3: empty initial square. 4: impersonating bot. 5: illegal capture. 6: blocked path. 7: is in check
+     * 0: valid
+     * 1: illegal move vector
+     * 2: outside play area
+     * 3: empty initial square
+     * 4: impersonating bot
+     * 5: illegal capture
+     * 6: blocked path
+     * 7: is in check
      */
     short validate(short sq_i, short sq_f)
     {
@@ -930,12 +1011,13 @@ struct Engine
             return 5;
 
         short dx = abs(x_of(sq_f) - x_of(sq_i)),
-            dy = abs(y_of(sq_f) - y_of(sq_i));
+            dy = abs(y_of(sq_f) - y_of(sq_i)),
+            d_cheby = std::max(dx, dy);
 
         Shape shape = sq_i_ptr->shape;
         if (shape == PAWN)
         {
-            if (rel_forward(player)*(sq_f - sq_i) < 0) // moved backward
+            if (rel_forward(player)*(sq_f - sq_i) < 0) // backward
                 return 1;
 
             if (!sq_f_ptr)
@@ -961,135 +1043,153 @@ struct Engine
         else if (shape == QUEEN && dx && dy && dx != dy)
             return 1;
 
-        else if (shape == KING && std::max(dx, dy) > 1)
-            return 1;
+        else if (shape == KING)
+        {
+            bool is_castle = false; 
+            if ((sq_f - sq_i == 2 && can_castle[player][K_SIDE]) || (sq_f - sq_i == -2 && can_castle[player][Q_SIDE]))
+            {
+                short sq = sq_i + 1;
+                for (; !squares[sq]; sq += 1)
+                {};
+                if (squares[sq]->shape == ROOK)
+                    is_castle = true;
+            }
 
-        if (shape != KNIGHT && shape != KING && !is_path_clear(sq_i, sq_f, dx, dy))
+            if (d_cheby > 1 && !is_castle)
+                return 1;
+        }
+
+        if (shape != KNIGHT && shape != KING && !is_path_clear(sq_i, sq_f, d_cheby))
             return 6;
 
-        bool is_promote = NULL;
+        bool is_promote = false, is_castle = false;
         unsigned long long _ = NULL;
-        move(_, is_promote, player, shape, sq_i, sq_f);
+        move(_, is_promote, is_castle, player, shape, sq_i, sq_f);
         if (is_checked(player))
         {
-            unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
+            unmove(is_promote, is_castle, player, shape, sq_i, sq_f, sq_f_ptr);
             return 7;
         }
-        unmove(is_promote, player, shape, sq_i, sq_f, sq_f_ptr);
+        unmove(is_promote, is_castle, player, shape, sq_i, sq_f, sq_f_ptr);
 
         // if all valid
         return 0;
     }
+};
 
-    friend std::ostream &operator<<(std::ostream& out, const Engine &engine)
+std::ostream &operator<<(std::ostream& out, const Engine &engine)
+{
+    const char char_of[MAX_PLAYER][MAX_SHAPE] = {
+        { 'p', 'n', 'b', 'r', 'q', 'k' },
+        { 'P', 'N', 'B', 'R', 'Q', 'K' }
+    };
+    const char TAB[4] = "   ";
+
+    out << "Transposition Table:" << std::endl;
+    short i = NULL;
+    for (const TtableEntry &entry : engine.t_table)
     {
-        const char char_of[MAX_PLAYER][MAX_SHAPE] = {
-            { 'p', 'n', 'b', 'r', 'q', 'k' },
-            { 'P', 'N', 'B', 'R', 'Q', 'K' }
-        };
-        const char TAB[4] = "   ";
-
-        out << "Transposition Table:" << std::endl;
-        short i = NULL;
-        for (const TtableEntry &entry : engine.t_table)
+        if (i < 10)
         {
-            if (i < 10)
+            if (entry.hash)
             {
-                if (entry.hash)
-                {
-                    out << TAB << entry.hash << ", " << entry.score << ", " << entry.game_depth << std::endl;
-                    i++;
-                }
+                out << TAB << entry.hash << ", " << entry.score << ", " << entry.game_depth << std::endl;
+                i++;
             }
-            else
-                break;
         }
-        out << TAB << "... (" << TABLE_SZ - 10 << " more)" << std::endl;
+        else
+            break;
+    }
+    out << TAB << "... (" << TABLE_SZ - 10 << " more)" << std::endl;
 
-        out << "hash:" << std::endl << TAB << engine.hash << std::endl;
+    out << "hash:" << std::endl << TAB << engine.hash << std::endl;
 
-        out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << engine.MAX_PHASE << std::endl << 
-            "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
+    out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << engine.MAX_PHASE << std::endl << 
+        "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
 
-        out << "Worth as opening:" << std::endl;
-        for (short my_player = BOT; my_player <= HUMAN; my_player++)
+    out << "Worth as opening:" << std::endl;
+    for (short player = BOT; player <= HUMAN; player++)
+    {
+        out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_opening[player] << std::endl;
+    }
+    out << "Worth as endgame:" << std::endl;
+    for (short player = BOT; player <= HUMAN; player++)
+    {
+        out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_endgame[player] << std::endl;
+    }
+
+    out << "FEN:" << std::endl << TAB;
+    short count = 0;
+    for (short sq = 0; sq < AREA; sq++)
+    {
+        if (x_of(sq) == PLAY_WIDTH)
         {
-            out << TAB << '[' << (my_player ? "HUMAN" : "BOT") << "]=" << engine.psv_opening[my_player] << std::endl;
+            if (count)
+            {
+                out << count;
+                count = 0;
+            }
+            if (sq != AREA - SENTL_WIDTH)
+                out << '/';
+            sq++; // skip col 9
         }
-        out << "Worth as endgame:" << std::endl;
-        for (short my_player = BOT; my_player <= HUMAN; my_player++)
+        else
         {
-            out << TAB << '[' << (my_player ? "HUMAN" : "BOT") << "]=" << engine.psv_endgame[my_player] << std::endl;
-        }
-
-        out << "FEN:" << std::endl << TAB;
-        short count = 0;
-        for (short sq = 0; sq < AREA; sq++)
-        {
-            if (x_of(sq) == PLAY_WIDTH)
+            Piece *piece = engine.squares[sq];
+            if (piece)
             {
                 if (count)
                 {
                     out << count;
                     count = 0;
                 }
-                if (sq != AREA - SENTL_WIDTH)
-                    out << '/';
-                sq++; // skip col 9
+                out << char_of[piece->player][piece->shape];
             }
             else
-            {
-                Piece *piece = engine.squares[sq];
-                if (piece)
-                {
-                    if (count)
-                    {
-                        out << count;
-                        count = 0;
-                    }
-                    out << char_of[piece->player][piece->shape];
-                }
-                else
-                    count++;
-            }
+                count++;
         }
-        out << ' ' << (engine.player ? 'w' : 'b') << std::endl;
-
-        out << TAB << "+-------------BOT-------------+" << std::endl;
-        for (short sq = 0; sq < AREA; sq++)
-        {
-            if (x_of(sq) == PLAY_WIDTH) // sentinels
-            {
-                out << " . . | " << sq - 1 << std::endl;
-                sq++; // skip col 9
-            }
-            else
-            {
-                if (x_of(sq) == 0)
-                    out << std::setw(2) << sq << " |";
-
-                Piece *piece = engine.squares[sq];
-                if (piece)
-                    out << std::setw(3) << char_of[piece->player][piece->shape];
-                else
-                    out << std::setw(3) << '_';
-            }
-        }
-        out << TAB << "+------------HUMAN------------+" << std::endl;
-        return out;
     }
-};
+    out << ' ' << (engine.player ? 'w' : 'b') << ' ';
+    for (short player = HUMAN; player >= BOT; player--)
+        for (short side = K_SIDE; side <= Q_SIDE; side++)
+            if (engine.can_castle[player][side])
+                out << char_of[player][KING - side];
+    out << std::endl;
 
-Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w"); // assume FEN is correct
+    out << TAB << "+-------------BOT-------------+" << std::endl;
+    for (short sq = 0; sq < AREA; sq++)
+    {
+        if (x_of(sq) == PLAY_WIDTH) // sentinels
+        {
+            out << " . . | " << sq - 1 << std::endl;
+            sq++; // skip col 9
+        }
+        else
+        {
+            if (x_of(sq) == 0)
+                out << std::setw(2) << sq << " |";
+
+            Piece *piece = engine.squares[sq];
+            if (piece)
+                out << std::setw(3) << char_of[piece->player][piece->shape];
+            else
+                out << std::setw(3) << '_';
+        }
+    }
+    out << TAB << "+------------HUMAN------------+" << std::endl;
+    return out;
+}
+
+Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq"); // assume FEN is validated by Chess.com
 
 void console_play()
 {
-    bool is_promote = NULL;
+    bool _ = NULL;
     short sq_i = NULL, sq_f = NULL, error_type = NULL, mate_type = NULL;
     if (engine.player == BOT)
     {
         engine.bot_move(sq_i, sq_f, mate_type);
-        engine.move(engine.hash, is_promote, engine.player, engine.squares[sq_i]->shape, sq_i, sq_f);
+        engine.move(engine.hash, _, _, engine.player, engine.squares[sq_i]->shape, sq_i, sq_f);
         engine.player = !engine.player;
         std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl << std::endl;
     }
@@ -1105,29 +1205,27 @@ void console_play()
                 std::cout << "Invalid move, broken rule #" << error_type << std::endl;
         }
         while (error_type);
-        engine.move(engine.hash, is_promote, engine.player, engine.squares[sq_i]->shape, sq_i, sq_f);
+        engine.move(engine.hash, _, _, engine.player, engine.squares[sq_i]->shape, sq_i, sq_f);
         engine.player = !engine.player;
-        if (is_promote)
-            std::cout << "Automatically promoted to the G.O.A.T. - QUEEN!" << is_promote << std::endl;
         std::cout << std::endl;
 
-        engine.bot_move(sq_i, sq_f, mate_type);
-        if (mate_type == 1)
-        {
-            std::cout << engine;
-            std::cout << "You won!" << std::endl;
-        }
-        else if (mate_type == 2)
-        {
-            std::cout << engine;
-            std::cout << "Draw!" << std::endl;
-        }
-        else
-        {
-            engine.move(engine.hash, is_promote, engine.player, engine.squares[sq_i]->shape, sq_i, sq_f);
-            engine.player = !engine.player;
-            std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl << std::endl;
-        }
+        // engine.bot_move(sq_i, sq_f, mate_type);
+        // if (mate_type == 1)
+        // {
+        //     std::cout << engine;
+        //     std::cout << "You won!" << std::endl;
+        // }
+        // else if (mate_type == 2)
+        // {
+        //     std::cout << engine;
+        //     std::cout << "Draw!" << std::endl;
+        // }
+        // else
+        // {
+        //     engine.move(engine.hash, is_promote, engine.player, engine.squares[sq_i]->shape, sq_i, sq_f);
+        //     engine.player = !engine.player;
+        //     std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl << std::endl;
+        // }
     }
 }
 
