@@ -42,7 +42,8 @@ enum Tag: short {
  * 
  * Values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
-const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 };
+const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 },
+            MAX_PHASE = 24; // sum of SHAPE_PHASE of all initial pieces in standard configuration
 
 const short PLAY_WIDTH = 8,
             MAX_PIECES = PLAY_WIDTH * PLAY_WIDTH - 1,
@@ -201,7 +202,7 @@ struct Engine
 
         out << "hash:" << std::endl << TAB << engine.glob_hash << std::endl;
 
-        out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << engine.MAX_PHASE << std::endl << 
+        out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << MAX_PHASE << std::endl << 
             "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
 
         out << "Worth as opening:" << std::endl;
@@ -550,7 +551,6 @@ struct Engine
     Player glob_player;
     short can_castles[MAX_PLAYER][2] = {{false}};
     short root_depth = NULL; // move counter, but only update when bot move
-    short MAX_PHASE = NULL; // sum of SHAPE_PHASE of all initial pieces
     short phase = NULL; // sum of SHAPE_PHASE of all current pieces
     short psv_opening[MAX_PLAYER] = {NULL, NULL};
     short psv_endgame[MAX_PLAYER] = {NULL, NULL};
@@ -670,7 +670,6 @@ struct Engine
                 }
             }
         }
-        MAX_PHASE = phase;
 
         std::cout << "===========================================" << std::endl
             << "              SIGMA4 CHESSBOT" << std::endl
@@ -1204,8 +1203,8 @@ struct Engine
             return 5;
 
         short dx = abs(x_of(sq_f) - x_of(sq_i)),
-            dy = abs(y_of(sq_f) - y_of(sq_i)),
-            d_cheby = std::max(dx, dy);
+              dy = abs(y_of(sq_f) - y_of(sq_i)),
+              d_cheby = std::max(dx, dy);
 
         Shape shape = sq_i_ptr->shape;
         if (shape == PAWN)
@@ -1235,7 +1234,8 @@ struct Engine
 
         else if (shape == QUEEN && dx && dy && dx != dy)
             return 1;
-        else // KING
+
+        else if (shape == KING)
         {
             if (tag == IS_CASTLE && is_checked(glob_player))
                 return 8;
@@ -1267,7 +1267,7 @@ struct Engine
 };
 
 /**
- * IMPORTANT: Custom FEN must be validated by Chess.com beforehand!
+ * IMPORTANT: Custom FEN must be validated by Chess.com!
  * Standard cofiguration: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq
  */
 Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq");
