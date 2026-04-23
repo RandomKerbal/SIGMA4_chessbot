@@ -5,19 +5,18 @@
 #include <cctype>
 #include <vector>
 
-const short MAX_DEPTH = 7;
-const short NM_R = 3,
+const short MAX_DEPTH = 7,
+            NM_R = 3,
             NM_DEPTH_INC = NM_R + 1,
-            MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC;
-const short MAX_NUM_AXB = 26,
-            MAX_2NUM_AXB = MAX_NUM_AXB * 2,
-            MAX_3NUM_AXB = MAX_NUM_AXB * 3;
+            MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC,
+            MAX_NUM_AXB = 26;
 
 enum Player: short {
-    BOT = 0, HUMAN = 1, // DO NOT CARE COLOR
+    BOT = 0, HUMAN = 1,
     MAX_PLAYER = 2,
     MINER = BOT, MAXER = HUMAN
 };
+
 inline Player operator!(Player player)
 {
     return Player(player ^ 1);
@@ -37,11 +36,15 @@ enum Side: short {
  * └── 0...5: see enum Shape
  *     └── how much each shape contributes to the game's phase
  * 
- * values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
+ * Values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
 const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 };
 
-const short PLAY_WIDTH = 8, MAX_PIECES = PLAY_WIDTH * PLAY_WIDTH - 1, SENTL_WIDTH = 2, WIDTH = PLAY_WIDTH + SENTL_WIDTH, AREA = PLAY_WIDTH * WIDTH;
+const short PLAY_WIDTH = 8,
+            MAX_PIECES = PLAY_WIDTH * PLAY_WIDTH - 1,
+            SENTL_WIDTH = 2,
+            WIDTH = PLAY_WIDTH + SENTL_WIDTH,
+            AREA = PLAY_WIDTH * WIDTH;
 
 /**
  * ZTABLE (Zobrist Table)
@@ -109,6 +112,7 @@ struct Piece
     Piece(Player player_ = MAX_PLAYER, Shape shape_ = MAX_SHAPE, short sq_ = -1) : player(player_), shape(shape_), sq(sq_)
     {}
 };
+
 struct TtableEntry
 {
     unsigned long long hash;
@@ -116,6 +120,25 @@ struct TtableEntry
     short total_depth;
 
     TtableEntry() : hash(0), score(0), total_depth(0)
+    {}
+};
+
+struct Moves
+{
+    short sq_i;
+    short sq_f;
+
+    Moves(short sq_i_ = -1, short sq_f_ = -1) : sq_i(sq_i_), sq_f(sq_f_)
+    {}
+};
+
+struct QuietMoves
+{
+    Shape shape;
+    short sq_i;
+    short sq_f;
+
+    QuietMoves(Shape shape_ = MAX_SHAPE, short sq_i_ = -1, short sq_f_ = -1) : shape(shape_), sq_i(sq_i_), sq_f(sq_f_)
     {}
 };
 
@@ -164,12 +187,13 @@ struct Engine
                 {
                     while (i_a < MAX_SHAPE)
                     {
-                        if (i + 1 < moves_end[i_v][i_a])
+                        if (i < moves_end[i_v][i_a])
                         {
                             shape_a = Shape(i_a);
-                            short *arr = moves[i_v][i_a];
-                            sq_i = arr[i++];
-                            sq_f = arr[i++];
+                            Moves *my_moves = moves[i_v][i_a];
+                            sq_i = my_moves[i].sq_i;
+                            sq_f = my_moves[i].sq_f;
+                            i++;
                             return true;
                         }
                         i = 0;
@@ -178,11 +202,12 @@ struct Engine
                     i_a = 0;
                     i_v++;
                 }
-                if (i + 2 < quiet_moves.size())
+                if (i < quiet_moves.size())
                 {
-                    shape_a = Shape(quiet_moves[i++]);
-                    sq_i = quiet_moves[i++];
-                    sq_f = quiet_moves[i++];
+                    shape_a = quiet_moves[i].shape;
+                    sq_i = quiet_moves[i].sq_i;
+                    sq_f = quiet_moves[i].sq_f;
+                    i++;
                     return true;
                 }
                 return false;
@@ -193,46 +218,38 @@ struct Engine
              * moves
              * └── victims ordered from most to least valuable: QUEEN, ..., PAWN (KING cannot be captured)
              *     └── attackers ordered from least to most valuable: PAWN, ..., KING
-             *         └── sq_i,sq_f, sq_i,sq_f, ...
+             *         └── see struct Moves{}
              * 
-             * quiet_moves - shape,sq_i,sq_f, shape,sq_i,sq_f, ...
+             * quiet_moves - see struct QuietMoves{}
              */
-            short moves[KING][MAX_SHAPE][MAX_2NUM_AXB] = {{{NULL}}}, moves_end[KING][MAX_SHAPE] = {{0}}, i_v = 0, i_a = 0, i = 0;
-            bool is_QS = NULL;
-            const short can_castle_Q = NULL, can_castle_K = NULL;
+            Moves moves[KING][MAX_SHAPE][MAX_NUM_AXB] = {{{NULL}}};
+            short moves_end[KING][MAX_SHAPE] = {{0}}, i_v = 0, i_a = 0, i = 0;
+            const bool is_QS;
+            const short can_castle_Q, can_castle_K;
             const Engine &engine;
-            std::vector<short> quiet_moves;
+            std::vector<QuietMoves> quiet_moves;
 
             inline void MVVLVA_insert(Shape shape_v, short sq_f)
             {
                 if (!(is_QS && shape_v == PAWN))
                 {
                     short i_v = QUEEN - shape_v;
-                    short *my_moves = moves[i_v][shape_a];
-                    short &my_moves_end = moves_end[i_v][shape_a];
 
-                    if (my_moves_end >= MAX_2NUM_AXB)
-                        std::cerr << "Error: moves[] array overflowed! Please contact developer.";
+                    if (moves_end[i_v][shape_a] >= MAX_NUM_AXB)
+                        std::cerr << "Error: moves[] array overflowed! Please contact developer." << std::endl;
 
-                    my_moves[my_moves_end++] = sq_i;
-                    my_moves[my_moves_end++] = sq_f;
+                    moves[i_v][shape_a][ moves_end[i_v][shape_a]++ ] = {sq_i, sq_f};
                 }
             }
             inline void quiet_push()
             {
                 if (!is_QS)
-                {
-                    short quiet_moves_end = quiet_moves.size();
-                    quiet_moves.resize(quiet_moves_end + 3);
-                    quiet_moves[quiet_moves_end] = shape_a;
-                    quiet_moves[quiet_moves_end + 1] = sq_i;
-                    quiet_moves[quiet_moves_end + 2] = sq_f;
-                }
+                    quiet_moves.emplace_back(shape_a, sq_i, sq_f);
             }
 
             void gen_MVVLVA_moves(Player player)
             {
-                quiet_moves.reserve(MAX_3NUM_AXB);
+                quiet_moves.reserve(MAX_NUM_AXB);
                 for (const Piece *sq_i_ptr = engine.pieces[player]; sq_i_ptr <= engine.KING_PTR[player]; sq_i_ptr++)
                 {
                     sq_i = sq_i_ptr->sq;
@@ -323,8 +340,6 @@ struct Engine
                                 }
                             }
                             short rook_sq_i = NULL;
-                            if (sq_i == 76 && (can_castle_Q || can_castle_K))
-                                std::cout << "76";
                             if (can_castle_Q)
                             {
                                 rook_sq_i = engine.ROOKS_SQ_I[player][Q_SIDE];
@@ -802,7 +817,7 @@ struct Engine
             }
         }
 
-        bool is_promote = NULL, _, has_child_score = NULL;
+        bool is_promote = NULL, has_child_score = NULL, _;
         short child_score = NULL;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
@@ -981,7 +996,10 @@ struct Engine
         short child_score = NULL, worst_score = worst_scores(glob_player, 0), score = worst_score;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
-        MVVLVAMoveGenerator moves(*this, glob_player, false, !is_checked_i && can_castles[glob_player][Q_SIDE], !is_checked_i && can_castles[glob_player][K_SIDE]);
+        MVVLVAMoveGenerator moves(*this, glob_player, false,
+                                  !is_checked_i && can_castles[glob_player][Q_SIDE],
+                                  !is_checked_i && can_castles[glob_player][K_SIDE]
+                                 );
         std::cout << "Possible {square_i, square_f, score}:" << std::endl;
         while (moves.next() && score != worst_scores(!glob_player, 0))
         {
@@ -1044,7 +1062,8 @@ struct Engine
      * 4: impersonating bot
      * 5: illegal capture
      * 6: blocked path
-     * 7: is in check
+     * 7: is in check after move
+     * 8: is in check before castling
      */
     short validate(short sq_i, short sq_f)
     {
@@ -1110,7 +1129,9 @@ struct Engine
         // after is_castle is set in move()
         if (shape == KING)
         {
-            if (d_cheby > 1 && !is_castle)
+            if (is_castle && is_checked(glob_player))
+                return 8;
+            else if (!is_castle && d_cheby > 1)
                 return 1;
         }
 
@@ -1229,7 +1250,11 @@ std::ostream &operator<<(std::ostream& out, const Engine &engine)
     return out;
 }
 
-Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq"); // assume FEN is validated by Chess.com
+/**
+ * IMPORTANT: Custom FEN must be validated by Chess.com beforehand!
+ * Standard cofiguration: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq
+ */
+Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq");
 
 void console_play()
 {
