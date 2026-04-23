@@ -27,8 +27,12 @@ enum Shape: short {
     MAX_SHAPE = 6,
 };
 
-enum Side: short {
+enum Side: bool {
     Q_SIDE = 0, K_SIDE = 1
+};
+
+enum Tag: short {
+    IS_NORM = 0, IS_PROMO = 1, IS_CASTLE = 2
 };
 
 /**
@@ -125,10 +129,11 @@ struct TtableEntry
 
 struct Moves
 {
+    Tag tag;
     short sq_i;
     short sq_f;
 
-    Moves(short sq_i_ = -1, short sq_f_ = -1) : sq_i(sq_i_), sq_f(sq_f_)
+    Moves(Tag tag_ = IS_NORM, short sq_i_ = -1, short sq_f_ = -1) : tag(tag_), sq_i(sq_i_), sq_f(sq_f_)
     {}
 };
 
@@ -168,18 +173,122 @@ inline short rel_forward(Player player)
 
 struct Engine
 {
+    friend std::ostream &operator<<(std::ostream& out, const Engine &engine)
+    {
+        const char char_of[MAX_PLAYER][MAX_SHAPE] = {
+            { 'p', 'n', 'b', 'r', 'q', 'k' },
+            { 'P', 'N', 'B', 'R', 'Q', 'K' }
+        };
+        const char TAB[4] = "   ";
+
+        out << "Transposition Table:" << std::endl;
+        short i = NULL;
+        for (const TtableEntry &entry : engine.t_table)
+        {
+            if (i < 10)
+            {
+                if (entry.hash)
+                {
+                    out << TAB << entry.hash << ", " << entry.score << ", " << entry.total_depth << std::endl;
+                    i++;
+                }
+            }
+            else
+                break;
+        }
+        out << TAB << "... (" << TABLE_SZ - 10 << " more)" << std::endl;
+
+        out << "hash:" << std::endl << TAB << engine.glob_hash << std::endl;
+
+        out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << engine.MAX_PHASE << std::endl << 
+            "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
+
+        out << "Worth as opening:" << std::endl;
+        for (short player = BOT; player <= HUMAN; player++)
+        {
+            out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_opening[player] << std::endl;
+        }
+        out << "Worth as endgame:" << std::endl;
+        for (short player = BOT; player <= HUMAN; player++)
+        {
+            out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_endgame[player] << std::endl;
+        }
+
+        out << "FEN:" << std::endl << TAB;
+        short count = 0;
+        for (short sq = 0; sq < AREA; sq++)
+        {
+            if (x_of(sq) == PLAY_WIDTH)
+            {
+                if (count)
+                {
+                    out << count;
+                    count = 0;
+                }
+                if (sq != AREA - SENTL_WIDTH)
+                    out << '/';
+                sq++; // skip col 9
+            }
+            else
+            {
+                Piece *piece = engine.squares[sq];
+                if (piece)
+                {
+                    if (count)
+                    {
+                        out << count;
+                        count = 0;
+                    }
+                    out << char_of[piece->player][piece->shape];
+                }
+                else
+                    count++;
+            }
+        }
+        out << ' ' << (engine.glob_player ? 'w' : 'b') << ' ';
+        for (short player = HUMAN; player >= BOT; player--)
+            for (short side = Q_SIDE; side <= K_SIDE; side++)
+                if (engine.can_castles[player][side])
+                    out << char_of[player][KING - side];
+        out << std::endl;
+
+        out << TAB << "+-------------BOT-------------+" << std::endl;
+        for (short sq = 0; sq < AREA; sq++)
+        {
+            if (x_of(sq) == PLAY_WIDTH) // sentinels
+            {
+                out << " . . | " << sq - 1 << std::endl;
+                sq++; // skip col 9
+            }
+            else
+            {
+                if (x_of(sq) == 0)
+                    out << std::setw(2) << sq << " |";
+
+                Piece *piece = engine.squares[sq];
+                if (piece)
+                    out << std::setw(3) << char_of[piece->player][piece->shape];
+                else
+                    out << std::setw(3) << '_';
+            }
+        }
+        out << TAB << "+------------HUMAN------------+" << std::endl;
+        return out;
+    }
+
     class MVVLVAMoveGenerator
     {
         public:
-            short sq_i = NULL, sq_f = NULL;
+            Tag tag = IS_NORM;
             Shape shape_a;
-            MVVLVAMoveGenerator(const Engine &engine, Player player, bool is_QS, const short can_castle_Q, const short can_castle_K) : engine(engine), is_QS(is_QS), can_castle_Q(can_castle_Q), can_castle_K(can_castle_K)
+            short sq_i = NULL, sq_f = NULL;
+            MVVLVAMoveGenerator(const Engine &engine_, Player player_, const bool is_QS_, const short can_castle_Q_, const short can_castle_K_) : engine(engine_), is_QS(is_QS_), can_castle_Q(can_castle_Q_), can_castle_K(can_castle_K_)
             {
-                gen_MVVLVA_moves(player);
+                gen_MVVLVA_moves(player_);
             }
 
             /**
-             * @return whether moves[] has element to assign to shape_a, sq_i, sq_f.
+             * @return whether moves[] has element remaining.
              */
             inline bool next()
             {
@@ -189,8 +298,9 @@ struct Engine
                     {
                         if (i < moves_end[i_v][i_a])
                         {
-                            shape_a = Shape(i_a);
                             Moves *my_moves = moves[i_v][i_a];
+                            tag = my_moves[i].tag;
+                            shape_a = Shape(i_a);
                             sq_i = my_moves[i].sq_i;
                             sq_f = my_moves[i].sq_f;
                             i++;
@@ -204,6 +314,7 @@ struct Engine
                 }
                 if (i < quiet_moves.size())
                 {
+                    tag = IS_NORM;
                     shape_a = quiet_moves[i].shape;
                     sq_i = quiet_moves[i].sq_i;
                     sq_f = quiet_moves[i].sq_f;
@@ -222,23 +333,23 @@ struct Engine
              * 
              * quiet_moves - see struct QuietMoves{}
              */
-            Moves moves[KING][MAX_SHAPE][MAX_NUM_AXB] = {{{NULL}}};
+            Moves moves[KING][MAX_SHAPE][MAX_NUM_AXB] = {{{}}};
             short moves_end[KING][MAX_SHAPE] = {{0}}, i_v = 0, i_a = 0, i = 0;
+            std::vector<QuietMoves> quiet_moves;
             const bool is_QS;
             const short can_castle_Q, can_castle_K;
             const Engine &engine;
-            std::vector<QuietMoves> quiet_moves;
 
-            inline void MVVLVA_insert(Shape shape_v, short sq_f)
+            inline void MVVLVA_insert(Tag tag, Shape shape_v, short sq_f)
             {
-                if (!(is_QS && shape_v == PAWN))
+                if (!is_QS || shape_v != PAWN)
                 {
                     short i_v = QUEEN - shape_v;
 
                     if (moves_end[i_v][shape_a] >= MAX_NUM_AXB)
                         std::cerr << "Error: moves[] array overflowed! Please contact developer." << std::endl;
 
-                    moves[i_v][shape_a][ moves_end[i_v][shape_a]++ ] = {sq_i, sq_f};
+                    moves[i_v][shape_a][moves_end[i_v][shape_a]++] = {tag, sq_i, sq_f};
                 }
             }
             inline void quiet_push()
@@ -262,7 +373,7 @@ struct Engine
                             if (1 <= y_i && y_i <= 6)
                             {
                                 short dy = rel_forward(player), sq_y = sq_i + dy;
-                                bool is_promote = (y_i == 1 && !player) || (y_i == 6 && player);
+                                bool is_promo = (y_i == 1 && player) || (y_i == 6 && !player);
 
                                 // capture moves
                                 for (short dx = -1; dx <= 1; dx += 2)
@@ -274,10 +385,10 @@ struct Engine
                                         const Shape shape_v = piece.shape;      
                                         if (piece.player != player && shape_v != KING)
                                         {
-                                            if (is_promote)
-                                                MVVLVA_insert(QUEEN, sq_f); // capture promotion best -> treat as PAWN x QUEEN
+                                            if (is_promo)
+                                                MVVLVA_insert(IS_PROMO, QUEEN, sq_f); // capture promotion best -> treat as PAWN x QUEEN
                                             else
-                                                MVVLVA_insert(shape_v, sq_f);
+                                                MVVLVA_insert(IS_NORM, shape_v, sq_f);
                                         }
                                     }
                                 }
@@ -286,8 +397,8 @@ struct Engine
                                 sq_f = sq_y;
                                 if (!engine.squares[sq_f])
                                 {
-                                    if (is_promote)
-                                        MVVLVA_insert(ROOK, sq_f); // quiet promotion 2nd best -> treat as PAWN x ROOK
+                                    if (is_promo)
+                                        MVVLVA_insert(IS_PROMO, ROOK, sq_f); // quiet promotion 2nd best -> treat as PAWN x ROOK
                                     else
                                     {
                                         quiet_push();
@@ -316,7 +427,7 @@ struct Engine
                                         const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
-                                            MVVLVA_insert(shape_v, sq_f);
+                                            MVVLVA_insert(IS_NORM, shape_v, sq_f);
                                     }
                                 }
                             }
@@ -335,7 +446,7 @@ struct Engine
                                         const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
-                                            MVVLVA_insert(shape_v, sq_f);
+                                            MVVLVA_insert(IS_NORM, shape_v, sq_f);
                                     }
                                 }
                             }
@@ -344,13 +455,13 @@ struct Engine
                             {
                                 rook_sq_i = engine.ROOKS_SQ_I[player][Q_SIDE];
                                 if (engine.is_path_clear(sq_i, rook_sq_i, sq_i - rook_sq_i))
-                                    MVVLVA_insert(PAWN, sq_i - 2); // castle better than quiet -> treat as KING x PAWN
+                                    MVVLVA_insert(IS_CASTLE, PAWN, sq_i - 2); // castle better than quiet -> treat as KING x PAWN
                             }
                             if (can_castle_K)
                             {
                                 rook_sq_i = engine.ROOKS_SQ_I[player][K_SIDE];
                                 if (engine.is_path_clear(sq_i, rook_sq_i, rook_sq_i - sq_i))
-                                    MVVLVA_insert(PAWN, sq_i + 2);
+                                    MVVLVA_insert(IS_CASTLE, PAWN, sq_i + 2);
                             }
                         }
                         else
@@ -367,7 +478,7 @@ struct Engine
                                         const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
-                                            MVVLVA_insert(shape_v, sq_f);
+                                            MVVLVA_insert(IS_NORM, shape_v, sq_f);
                                     }
                                 }
                             }
@@ -384,7 +495,7 @@ struct Engine
                                         const Piece &piece = *engine.squares[sq_f];
                                         const Shape shape_v = piece.shape;
                                         if (piece.player != player && shape_v != KING)
-                                            MVVLVA_insert(shape_v, sq_f);
+                                            MVVLVA_insert(IS_NORM, shape_v, sq_f);
                                     }
                                 }
                             }
@@ -570,7 +681,10 @@ struct Engine
         psv_endgame[player] -= PST_ENDGAME[player][shape][sq];
     }
 
-    inline void move(unsigned long long &hash, bool &is_promote, bool &is_castle, Player player, Shape shape, short sq_i, short sq_f)
+    /**
+     * @return the new hash after the move.
+     */
+    inline unsigned long long move(unsigned long long hash, Player player, Tag tag, Shape shape, short sq_i, short sq_f)
     {
         Piece *sq_i_ptr = squares[sq_i];
         Piece *sq_f_ptr = squares[sq_f];
@@ -588,13 +702,12 @@ struct Engine
         }
 
         // promotion
-        if (shape == PAWN && (sq_f < PLAY_WIDTH || sq_f >= AREA-WIDTH))
+        if (tag == IS_PROMO)
         {
             sq_i_ptr->shape = QUEEN;
             phase += SHAPE_PHASE[QUEEN]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
             add_psv(player, QUEEN, sq_f);
             hash ^= ZTABLE[player][QUEEN][sq_f];
-            is_promote = true;
         }
         else
         {
@@ -603,7 +716,7 @@ struct Engine
         }
 
         // castle
-        if (shape == KING && abs(sq_f - sq_i) == 2)
+        if (tag == IS_CASTLE)
         {
             short rook_sq_i = NULL, rook_sq_f = NULL;
             if (sq_f < sq_i) // queenside
@@ -625,7 +738,6 @@ struct Engine
             hash ^= ZTABLE[player][ROOK][rook_sq_i];
             add_psv(player, ROOK, rook_sq_f);
             hash ^= ZTABLE[player][ROOK][rook_sq_f];
-            is_castle = true;
         }
 
         sq_i_ptr->sq = sq_f;
@@ -634,6 +746,7 @@ struct Engine
         del_psv(player, shape, sq_i);
         hash ^= ZTABLE[player][shape][sq_i];
         hash ^= Z_PLAYER;
+        return hash;
     }
 
     /**
@@ -642,12 +755,12 @@ struct Engine
      * 2. Same sq_i & sq_f as in move()
      * 3. Same shape as before promotion (promoted QUEEN still has shape PAWN)
      */
-    inline void unmove(bool is_promote, bool is_castle, Player player, Shape shape, short sq_i, short sq_f, Piece *prev_sq_f_ptr)
+    inline void unmove(Player player, Tag tag, Shape shape, short sq_i, short sq_f, Piece *prev_sq_f_ptr)
     {
         Piece *sq_f_ptr = squares[sq_f];
 
         // uncastle
-        if (is_castle)
+        if (tag == IS_CASTLE)
         {
             short rook_sq_i = NULL, rook_sq_f = NULL;
             if (sq_f < sq_i) // queenside
@@ -670,7 +783,7 @@ struct Engine
         }
 
         // demotion
-        if (is_promote)
+        if (tag == IS_PROMO)
         {
             sq_f_ptr->shape = PAWN;
             phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
@@ -817,17 +930,16 @@ struct Engine
             }
         }
 
-        bool is_promote = NULL, has_child_score = NULL, _;
+        bool has_child_score = NULL;
         short child_score = NULL;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
         MVVLVAMoveGenerator moves(*this, player, true, false, false);
         while (moves.next())
         {
-            child_hash = hash;
             has_child_score = false;
             sq_f_ptr = squares[moves.sq_f];
-            move(child_hash, is_promote, _, player, moves.shape_a, moves.sq_i, moves.sq_f);
+            child_hash = move(hash, player, moves.tag, moves.shape_a, moves.sq_i, moves.sq_f);
 
             const TtableEntry &child_entry = t_table[child_hash % TABLE_SZ];
             if (child_hash == child_entry.hash)
@@ -841,7 +953,7 @@ struct Engine
                 has_child_score = true;
             }
 
-            unmove(is_promote, false, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+            unmove(player, moves.tag, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
             if (has_child_score)
             {
@@ -909,7 +1021,7 @@ struct Engine
             }
         }
 
-        bool is_promote = NULL, is_castle = NULL, has_child_score = NULL;
+        bool has_child_score = NULL;
         short worst_score = worst_scores(player, depth), score = worst_score, total_depth = NULL;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
@@ -920,12 +1032,9 @@ struct Engine
                                  );
         while (moves.next())
         {
-            child_hash = hash;
-            is_promote = false;
-            is_castle = false;
             has_child_score = false;
             sq_f_ptr = squares[moves.sq_f];
-            move(child_hash, is_promote, is_castle, player, moves.shape_a, moves.sq_i, moves.sq_f);
+            child_hash = move(hash, player, moves.tag, moves.shape_a, moves.sq_i, moves.sq_f);
 
             child_entry = &t_table[child_hash % TABLE_SZ];
             total_depth = root_depth + depth;
@@ -949,7 +1058,7 @@ struct Engine
                 is_PV_node = false;
             }
 
-            unmove(is_promote, is_castle, player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+            unmove(player, moves.tag, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
             if (has_child_score)
             {
@@ -988,11 +1097,11 @@ struct Engine
      * mate_type = 1 if bot is checkmated
      * mate_type = 2 if bot is stalemated
      */
-    void bot_move(short &best_sq_i, short &best_sq_f, short &mate_type)
+    void bot_move(Tag &tag, short &best_sq_i, short &best_sq_f, short &mate_type)
     {
         move_history[0] = glob_hash;
 
-        bool is_checked_i = is_checked(glob_player), is_PV_node = true, is_promote = NULL, is_castle = NULL, has_child_score = NULL;
+        bool is_checked_i = is_checked(glob_player), is_PV_node = true, has_child_score = NULL;
         short child_score = NULL, worst_score = worst_scores(glob_player, 0), score = worst_score;
         unsigned long long child_hash = NULL;
         Piece *sq_f_ptr;
@@ -1003,12 +1112,9 @@ struct Engine
         std::cout << "Possible {square_i, square_f, score}:" << std::endl;
         while (moves.next() && score != worst_scores(!glob_player, 0))
         {
-            child_hash = glob_hash;
-            is_promote = false;
-            is_castle = false;
             has_child_score = false;
             sq_f_ptr = squares[moves.sq_f];
-            move(child_hash, is_promote, is_castle, glob_player, moves.shape_a, moves.sq_i, moves.sq_f);
+            child_hash = move(glob_hash, glob_player, moves.tag, moves.shape_a, moves.sq_i, moves.sq_f);
             
             if (!is_checked(glob_player))
             {
@@ -1022,19 +1128,21 @@ struct Engine
                 is_PV_node = false;
             }
 
-            unmove(is_promote, is_castle, glob_player, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
+            unmove(glob_player, moves.tag, moves.shape_a, moves.sq_i, moves.sq_f, sq_f_ptr);
 
             if (has_child_score)
             {
                 std::cout << "{" << moves.sq_i << ", " << moves.sq_f << ", " << child_score << "}," << std::endl;
                 if (glob_player == MAXER && child_score > score)
                 {
+                    tag = moves.tag;
                     best_sq_i = moves.sq_i;
                     best_sq_f = moves.sq_f;
                     score = child_score;
                 }
                 else if (glob_player == MINER && child_score < score)
                 {
+                    tag = moves.tag;
                     best_sq_i = moves.sq_i;
                     best_sq_f = moves.sq_f;
                     score = child_score;
@@ -1051,6 +1159,16 @@ struct Engine
         else
             mate_type = 0;
         root_depth += 2; // 1 for human, 1 for bot
+    }
+
+    Tag id_tag(short sq_i, short sq_f)
+    {
+        short y_i = y_of(sq_i);
+        if (squares[sq_i]->shape == PAWN && (y_i == 1 && glob_player) || (y_i == 6 && !glob_player))
+            return IS_PROMO;
+        else if (squares[sq_i]->shape == KING && abs(sq_f - sq_i) == 2)
+            return IS_CASTLE;
+        return IS_NORM;
     }
 
     /**
@@ -1084,6 +1202,7 @@ struct Engine
             dy = abs(y_of(sq_f) - y_of(sq_i)),
             d_cheby = std::max(dx, dy);
 
+        Tag tag = id_tag(sq_i, sq_f);
         Shape shape = sq_i_ptr->shape;
         if (shape == PAWN)
         {
@@ -1112,28 +1231,24 @@ struct Engine
 
         else if (shape == QUEEN && dx && dy && dx != dy)
             return 1;
+        else // KING
+        {
+            if (tag == IS_CASTLE && is_checked(glob_player))
+                return 8;
+            else if (tag != IS_CASTLE && d_cheby > 1)
+                return 1;
+        }
 
         if (shape != KNIGHT && shape != KING && !is_path_clear(sq_i, sq_f, d_cheby))
             return 6;
 
-        bool is_promote = false, is_castle = false;
-        unsigned long long _;
-        move(_, is_promote, is_castle, glob_player, shape, sq_i, sq_f);
+        move(NULL, glob_player, tag, shape, sq_i, sq_f);
         if (is_checked(glob_player))
         {
-            unmove(is_promote, is_castle, glob_player, shape, sq_i, sq_f, sq_f_ptr);
+            unmove(glob_player, tag, shape, sq_i, sq_f, sq_f_ptr);
             return 7;
         }
-        unmove(is_promote, is_castle, glob_player, shape, sq_i, sq_f, sq_f_ptr);
-
-        // after is_castle is set in move()
-        if (shape == KING)
-        {
-            if (is_castle && is_checked(glob_player))
-                return 8;
-            else if (!is_castle && d_cheby > 1)
-                return 1;
-        }
+        unmove(glob_player, tag, shape, sq_i, sq_f, sq_f_ptr);
 
         // if all valid
         return 0;
@@ -1147,109 +1262,6 @@ struct Engine
     }
 };
 
-std::ostream &operator<<(std::ostream& out, const Engine &engine)
-{
-    const char char_of[MAX_PLAYER][MAX_SHAPE] = {
-        { 'p', 'n', 'b', 'r', 'q', 'k' },
-        { 'P', 'N', 'B', 'R', 'Q', 'K' }
-    };
-    const char TAB[4] = "   ";
-
-    out << "Transposition Table:" << std::endl;
-    short i = NULL;
-    for (const TtableEntry &entry : engine.t_table)
-    {
-        if (i < 10)
-        {
-            if (entry.hash)
-            {
-                out << TAB << entry.hash << ", " << entry.score << ", " << entry.total_depth << std::endl;
-                i++;
-            }
-        }
-        else
-            break;
-    }
-    out << TAB << "... (" << TABLE_SZ - 10 << " more)" << std::endl;
-
-    out << "hash:" << std::endl << TAB << engine.glob_hash << std::endl;
-
-    out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << engine.MAX_PHASE << std::endl << 
-        "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
-
-    out << "Worth as opening:" << std::endl;
-    for (short player = BOT; player <= HUMAN; player++)
-    {
-        out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_opening[player] << std::endl;
-    }
-    out << "Worth as endgame:" << std::endl;
-    for (short player = BOT; player <= HUMAN; player++)
-    {
-        out << TAB << '[' << (player ? "HUMAN" : "BOT") << "]=" << engine.psv_endgame[player] << std::endl;
-    }
-
-    out << "FEN:" << std::endl << TAB;
-    short count = 0;
-    for (short sq = 0; sq < AREA; sq++)
-    {
-        if (x_of(sq) == PLAY_WIDTH)
-        {
-            if (count)
-            {
-                out << count;
-                count = 0;
-            }
-            if (sq != AREA - SENTL_WIDTH)
-                out << '/';
-            sq++; // skip col 9
-        }
-        else
-        {
-            Piece *piece = engine.squares[sq];
-            if (piece)
-            {
-                if (count)
-                {
-                    out << count;
-                    count = 0;
-                }
-                out << char_of[piece->player][piece->shape];
-            }
-            else
-                count++;
-        }
-    }
-    out << ' ' << (engine.glob_player ? 'w' : 'b') << ' ';
-    for (short player = HUMAN; player >= BOT; player--)
-        for (short side = Q_SIDE; side <= K_SIDE; side++)
-            if (engine.can_castles[player][side])
-                out << char_of[player][KING - side];
-    out << std::endl;
-
-    out << TAB << "+-------------BOT-------------+" << std::endl;
-    for (short sq = 0; sq < AREA; sq++)
-    {
-        if (x_of(sq) == PLAY_WIDTH) // sentinels
-        {
-            out << " . . | " << sq - 1 << std::endl;
-            sq++; // skip col 9
-        }
-        else
-        {
-            if (x_of(sq) == 0)
-                out << std::setw(2) << sq << " |";
-
-            Piece *piece = engine.squares[sq];
-            if (piece)
-                out << std::setw(3) << char_of[piece->player][piece->shape];
-            else
-                out << std::setw(3) << '_';
-        }
-    }
-    out << TAB << "+------------HUMAN------------+" << std::endl;
-    return out;
-}
-
 /**
  * IMPORTANT: Custom FEN must be validated by Chess.com beforehand!
  * Standard cofiguration: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq
@@ -1258,13 +1270,13 @@ Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq");
 
 void console_play()
 {
-    bool _;
     short sq_i = NULL, sq_f = NULL, error_type = NULL, mate_type = NULL;
+    Tag tag = IS_NORM;
     if (engine.glob_player == BOT)
     {
-        engine.bot_move(sq_i, sq_f, mate_type);
+        engine.bot_move(tag, sq_i, sq_f, mate_type);
         engine.update_glob_can_castle(sq_i);
-        engine.move(engine.glob_hash, _, _, engine.glob_player, engine.squares[sq_i]->shape, sq_i, sq_f);
+        engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
         engine.glob_player = !engine.glob_player;
         std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl << std::endl;
     }
@@ -1280,12 +1292,13 @@ void console_play()
                 std::cout << "Invalid move, broken rule #" << error_type << std::endl;
         }
         while (error_type);
+        tag = engine.id_tag(sq_i, sq_f);
         engine.update_glob_can_castle(sq_i);
-        engine.move(engine.glob_hash, _, _, engine.glob_player, engine.squares[sq_i]->shape, sq_i, sq_f);
+        engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
         engine.glob_player = !engine.glob_player;
         std::cout << std::endl;
 
-        engine.bot_move(sq_i, sq_f, mate_type);
+        engine.bot_move(tag, sq_i, sq_f, mate_type);
         if (mate_type == 1)
         {
             std::cout << engine;
@@ -1299,7 +1312,7 @@ void console_play()
         else
         {
             engine.update_glob_can_castle(sq_i);
-            engine.move(engine.glob_hash, _, _, engine.glob_player, engine.squares[sq_i]->shape, sq_i, sq_f);
+            engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
             engine.glob_player = !engine.glob_player;
             std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl << std::endl;
         }
