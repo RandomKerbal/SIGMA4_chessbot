@@ -1,9 +1,12 @@
 #include <algorithm>
 #include <climits>
 #include <iostream>
+#include <string>
 #include <iomanip>
 #include <cctype>
 #include <vector>
+
+const char *DEFAULT_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 const short MAX_DEPTH = 7,
             NM_R = 3,
@@ -42,7 +45,7 @@ enum Tag: short {
  * 
  * Values from Rofchade: http://www.talkchess.com/forum3/viewtopic.php?f=2&t=68311&start=19
  */
-const short SHAPE_PHASE[MAX_SHAPE] = { 0, 0, 1, 1, 2, 4 },
+const short SHAPE_PHASE[MAX_SHAPE] = { 0, 1, 1, 2, 4, 0 },
             MAX_PHASE = 24; // sum of SHAPE_PHASE of all initial pieces in standard configuration
 
 const short PLAY_WIDTH = 8,
@@ -74,6 +77,10 @@ const size_t TABLE_SZ = 1 << 22; // must be power of 2
 const short PST_OPENING[MAX_PLAYER][MAX_SHAPE][AREA] = {{{82,82,82,82,82,82,82,82,0,0,47,81,62,59,67,106,120,60,0,0,56,78,78,72,85,85,115,70,0,0,55,80,77,94,99,88,92,57,0,0,68,95,88,103,105,94,99,59,0,0,76,89,108,113,147,138,107,62,0,0,180,216,143,177,150,208,116,71,0,0,82,82,82,82,82,82,82,82,0,0,},{232,316,279,304,320,309,318,314,0,0,308,284,325,334,336,355,323,318,0,0,314,328,349,347,356,354,362,321,0,0,324,341,353,350,365,356,358,329,0,0,328,354,356,390,374,406,355,359,0,0,290,397,374,402,421,466,410,381,0,0,264,296,409,373,360,399,344,320,0,0,170,248,303,288,398,240,322,230,0,0,},{332,362,351,344,352,353,326,344,0,0,369,380,381,365,372,386,398,366,0,0,365,380,380,380,379,392,383,375,0,0,359,378,378,391,399,377,375,369,0,0,361,370,384,415,402,402,372,363,0,0,349,402,408,405,400,415,402,363,0,0,339,381,347,352,395,424,383,318,0,0,336,369,283,328,340,323,372,357,0,0,},{458,464,478,494,493,484,440,451,0,0,433,461,457,468,476,488,471,406,0,0,432,452,461,460,480,477,472,444,0,0,441,451,465,476,486,470,483,454,0,0,453,466,484,503,501,512,469,457,0,0,472,496,503,513,494,522,538,493,0,0,504,509,535,539,557,544,503,521,0,0,509,519,509,528,540,486,508,520,0,0,},{1024,1007,1016,1035,1010,1000,994,975,0,0,990,1017,1036,1027,1033,1040,1022,1026,0,0,1011,1027,1014,1023,1020,1027,1039,1030,0,0,1016,999,1016,1015,1023,1021,1028,1022,0,0,998,998,1009,1009,1024,1042,1023,1026,0,0,1012,1008,1032,1033,1054,1081,1072,1082,0,0,1001,986,1020,1026,1009,1082,1053,1079,0,0,997,1025,1054,1037,1084,1069,1068,1070,0,0,},{-15,36,12,-54,8,-28,24,14,0,0,1,7,-8,-64,-43,-16,9,8,0,0,-14,-14,-22,-46,-44,-30,-15,-27,0,0,-49,-1,-27,-39,-46,-44,-33,-51,0,0,-17,-20,-12,-27,-30,-25,-14,-36,0,0,-9,24,2,-16,-20,6,22,-22,0,0,29,-1,-20,-7,-8,-4,-38,-29,0,0,-65,23,16,-15,-56,-34,2,13,0,0,},},{{82,82,82,82,82,82,82,82,0,0,180,216,143,177,150,208,116,71,0,0,76,89,108,113,147,138,107,62,0,0,68,95,88,103,105,94,99,59,0,0,55,80,77,94,99,88,92,57,0,0,56,78,78,72,85,85,115,70,0,0,47,81,62,59,67,106,120,60,0,0,82,82,82,82,82,82,82,82,0,0,},{170,248,303,288,398,240,322,230,0,0,264,296,409,373,360,399,344,320,0,0,290,397,374,402,421,466,410,381,0,0,328,354,356,390,374,406,355,359,0,0,324,341,353,350,365,356,358,329,0,0,314,328,349,347,356,354,362,321,0,0,308,284,325,334,336,355,323,318,0,0,232,316,279,304,320,309,318,314,0,0,},{336,369,283,328,340,323,372,357,0,0,339,381,347,352,395,424,383,318,0,0,349,402,408,405,400,415,402,363,0,0,361,370,384,415,402,402,372,363,0,0,359,378,378,391,399,377,375,369,0,0,365,380,380,380,379,392,383,375,0,0,369,380,381,365,372,386,398,366,0,0,332,362,351,344,352,353,326,344,0,0,},{509,519,509,528,540,486,508,520,0,0,504,509,535,539,557,544,503,521,0,0,472,496,503,513,494,522,538,493,0,0,453,466,484,503,501,512,469,457,0,0,441,451,465,476,486,470,483,454,0,0,432,452,461,460,480,477,472,444,0,0,433,461,457,468,476,488,471,406,0,0,458,464,478,494,493,484,440,451,0,0,},{997,1025,1054,1037,1084,1069,1068,1070,0,0,1001,986,1020,1026,1009,1082,1053,1079,0,0,1012,1008,1032,1033,1054,1081,1072,1082,0,0,998,998,1009,1009,1024,1042,1023,1026,0,0,1016,999,1016,1015,1023,1021,1028,1022,0,0,1011,1027,1014,1023,1020,1027,1039,1030,0,0,990,1017,1036,1027,1033,1040,1022,1026,0,0,1024,1007,1016,1035,1010,1000,994,975,0,0,},{-65,23,16,-15,-56,-34,2,13,0,0,29,-1,-20,-7,-8,-4,-38,-29,0,0,-9,24,2,-16,-20,6,22,-22,0,0,-17,-20,-12,-27,-30,-25,-14,-36,0,0,-49,-1,-27,-39,-46,-44,-33,-51,0,0,-14,-14,-22,-46,-44,-30,-15,-27,0,0,1,7,-8,-64,-43,-16,9,8,0,0,-15,36,12,-54,8,-28,24,14,0,0,},},};
 const short PST_ENDGAME[MAX_PLAYER][MAX_SHAPE][AREA] = {{{94,94,94,94,94,94,94,94,0,0,107,102,102,104,107,94,96,87,0,0,98,101,88,95,94,89,93,86,0,0,107,103,91,87,87,86,97,93,0,0,126,118,107,99,92,98,111,111,0,0,188,194,179,161,150,147,176,178,0,0,272,267,252,228,241,226,259,281,0,0,94,94,94,94,94,94,94,94,0,0,},{252,230,258,266,259,263,231,217,0,0,239,261,271,276,279,261,258,237,0,0,258,278,280,296,291,278,261,259,0,0,263,275,297,306,297,298,285,263,0,0,264,284,303,303,303,292,289,263,0,0,257,261,291,290,280,272,262,240,0,0,256,273,256,279,272,256,257,229,0,0,223,243,268,253,250,254,218,182,0,0,},{274,288,274,292,288,281,292,280,0,0,283,279,290,296,301,288,282,270,0,0,285,294,305,307,310,300,290,282,0,0,291,300,310,316,304,307,294,288,0,0,294,306,309,306,311,307,300,299,0,0,299,289,297,296,295,303,297,301,0,0,289,293,304,285,294,284,293,283,0,0,283,276,286,289,290,288,280,273,0,0,},{503,514,515,511,507,499,516,492,0,0,506,506,512,514,503,503,501,509,0,0,508,512,507,511,505,500,504,496,0,0,515,517,520,516,507,506,504,501,0,0,516,515,525,513,514,513,511,514,0,0,519,519,519,517,516,509,507,509,0,0,523,525,525,523,509,515,520,515,0,0,525,522,530,527,524,524,520,517,0,0,},{903,908,914,893,931,904,916,895,0,0,914,913,906,920,920,913,900,904,0,0,920,909,951,942,945,953,946,941,0,0,918,964,955,983,967,970,975,959,0,0,939,958,960,981,993,976,993,972,0,0,916,942,945,985,983,971,955,945,0,0,919,956,968,977,994,961,966,936,0,0,927,958,958,963,963,955,946,956,0,0,},{-53,-34,-21,-11,-28,-14,-24,-43,0,0,-27,-11,4,13,14,4,-5,-17,0,0,-19,-3,11,21,23,16,7,-9,0,0,-18,-4,21,24,27,23,9,-11,0,0,-8,22,24,27,26,33,26,3,0,0,10,17,23,15,20,45,44,13,0,0,-12,17,14,17,17,38,23,11,0,0,-74,-35,-18,-18,-11,15,4,-17,0,0,},},{{94,94,94,94,94,94,94,94,0,0,272,267,252,228,241,226,259,281,0,0,188,194,179,161,150,147,176,178,0,0,126,118,107,99,92,98,111,111,0,0,107,103,91,87,87,86,97,93,0,0,98,101,88,95,94,89,93,86,0,0,107,102,102,104,107,94,96,87,0,0,94,94,94,94,94,94,94,94,0,0,},{223,243,268,253,250,254,218,182,0,0,256,273,256,279,272,256,257,229,0,0,257,261,291,290,280,272,262,240,0,0,264,284,303,303,303,292,289,263,0,0,263,275,297,306,297,298,285,263,0,0,258,278,280,296,291,278,261,259,0,0,239,261,271,276,279,261,258,237,0,0,252,230,258,266,259,263,231,217,0,0,},{283,276,286,289,290,288,280,273,0,0,289,293,304,285,294,284,293,283,0,0,299,289,297,296,295,303,297,301,0,0,294,306,309,306,311,307,300,299,0,0,291,300,310,316,304,307,294,288,0,0,285,294,305,307,310,300,290,282,0,0,283,279,290,296,301,288,282,270,0,0,274,288,274,292,288,281,292,280,0,0,},{525,522,530,527,524,524,520,517,0,0,523,525,525,523,509,515,520,515,0,0,519,519,519,517,516,509,507,509,0,0,516,515,525,513,514,513,511,514,0,0,515,517,520,516,507,506,504,501,0,0,508,512,507,511,505,500,504,496,0,0,506,506,512,514,503,503,501,509,0,0,503,514,515,511,507,499,516,492,0,0,},{927,958,958,963,963,955,946,956,0,0,919,956,968,977,994,961,966,936,0,0,916,942,945,985,983,971,955,945,0,0,939,958,960,981,993,976,993,972,0,0,918,964,955,983,967,970,975,959,0,0,920,909,951,942,945,953,946,941,0,0,914,913,906,920,920,913,900,904,0,0,903,908,914,893,931,904,916,895,0,0,},{-74,-35,-18,-18,-11,15,4,-17,0,0,-12,17,14,17,17,38,23,11,0,0,10,17,23,15,20,45,44,13,0,0,-8,22,24,27,26,33,26,3,0,0,-18,-4,21,24,27,23,9,-11,0,0,-19,-3,11,21,23,16,7,-9,0,0,-27,-11,4,13,14,4,-5,-17,0,0,-53,-34,-21,-11,-28,-14,-24,-43,0,0,},},};
 
+const short R_CASTLE_SQ[MAX_PLAYER][2] = {
+    {0, 7},
+    {70, 77}
+};
 const short K_VECTOR[8] = {
     +1,             // (1, 0)
     +1 + WIDTH,     // (1, 1)
@@ -159,6 +166,16 @@ inline short y_of(short sq)
     return sq / WIDTH;
 }
 
+inline char file_of(short sq)
+{
+    return 'a' + x_of(sq);
+}
+
+inline short rank_of(short sq)
+{
+    return PLAY_WIDTH - y_of(sq);
+}
+
 inline bool is_play_area(short sq)
 {
     return unsigned(sq) < AREA && x_of(sq) < PLAY_WIDTH; // if x < 0, it becomes a huge unsigned number > AREA.
@@ -181,7 +198,7 @@ struct Engine
             { 'p', 'n', 'b', 'r', 'q', 'k' },
             { 'P', 'N', 'B', 'R', 'Q', 'K' }
         };
-        const char TAB[4] = "   ";
+        std::string TAB = "   ";
 
         out << "Transposition Table:" << std::endl;
         short i = NULL;
@@ -459,7 +476,7 @@ struct Engine
                             short rook_sq_i = NULL;
                             if (can_castle_Q)
                             {
-                                rook_sq_i = engine.ROOKS_SQ_I[player][Q_SIDE];
+                                rook_sq_i = R_CASTLE_SQ[player][Q_SIDE];
                                 if (engine.is_path_clear(sq_i, rook_sq_i, sq_i - rook_sq_i))
                                 {
                                     sq_f = sq_i - 2;
@@ -468,7 +485,7 @@ struct Engine
                             }
                             if (can_castle_K)
                             {
-                                rook_sq_i = engine.ROOKS_SQ_I[player][K_SIDE];
+                                rook_sq_i = R_CASTLE_SQ[player][K_SIDE];
                                 if (engine.is_path_clear(sq_i, rook_sq_i, rook_sq_i - sq_i))
                                 {
                                     sq_f = sq_i + 2;
@@ -525,10 +542,7 @@ struct Engine
      * 
      * If an piece is captured, its sq = sq - AREA
      */
-    Piece pieces[MAX_PLAYER][MAX_PIECES] = {{}, {}};
-    Piece *KING_PTR[MAX_PLAYER] = {nullptr, nullptr};
-    short ROOKS_SQ_I[MAX_PLAYER][2] = {{-1, -1}, {-1, -1}};
-
+    Piece pieces[MAX_PLAYER][MAX_PIECES];
     /** 
      * squares
      * ├── columns 8,9 element
@@ -540,24 +554,56 @@ struct Engine
      * The squares is 10x8 since the two rightmost columns are sentinels that prevent
      * iterators from "wrapping" onto the previous/next row. Sentinels/empties are nullptr to identify easily using !squares[sq].
      */
-    Piece *squares[AREA] = {nullptr};
-
-    unsigned long long glob_hash = NULL;
-
-    TtableEntry ttable[TABLE_SZ]; // Transposition Table
-
-    unsigned long long move_history[MAX_DEPTH] = {NULL};
+    Piece *squares[AREA];
+    Piece *KING_PTR[MAX_PLAYER];
+    short can_castles[MAX_PLAYER][2];
 
     Player glob_player;
-    short can_castles[MAX_PLAYER][2] = {{false}};
-    short root_depth = NULL; // move counter, but only update when bot move
-    short phase = NULL; // sum of SHAPE_PHASE of all current pieces
-    short psv_opening[MAX_PLAYER] = {NULL, NULL};
-    short psv_endgame[MAX_PLAYER] = {NULL, NULL};
+    unsigned long long glob_hash;
+    TtableEntry ttable[TABLE_SZ]; // Transposition Table
 
-    Engine(const char *FEN)
+    short root_depth; // move counter, but only update when bot move
+    unsigned long long move_history[MAX_DEPTH];
+
+    short phase; // sum of SHAPE_PHASE of all current pieces
+    short psv_opening[MAX_PLAYER];
+    short psv_endgame[MAX_PLAYER];
+
+    /**
+     * IMPORTANT: Custom FEN must be validated beforehand!
+     * Last 2 fields of FEN (en passant targets, move counters) are ignored.
+     */
+    Engine(const char *FEN = DEFAULT_FEN)
     {
-        // init pieces[]
+        reset();
+        load(FEN);
+    }
+
+    void reset()
+    {
+        for (short player = BOT; player <= HUMAN; player++)
+        {
+            for (Piece &piece : pieces[player])
+                piece = Piece();
+            KING_PTR[player] = nullptr;
+            can_castles[player][Q_SIDE] = false;
+            can_castles[player][K_SIDE] = false;
+            psv_opening[player] = 0;
+            psv_endgame[player] = 0;
+        }
+        for (Piece *&sq : squares)
+            sq = nullptr;
+        glob_player = BOT;
+        glob_hash = 0;
+        root_depth = 0;
+        for (unsigned long long &hash : move_history)
+            hash = 0;
+        phase = 0;
+    }
+
+    void load(const char *FEN = DEFAULT_FEN)
+    {
+        // load pieces[]
         const char *ch_ptr = FEN;
         char ch = NULL;
         short sq = 0;
@@ -601,9 +647,10 @@ struct Engine
                 for (; i < MAX_PIECES && (shape >= my_pieces[i].shape); i++) // pieces[] is sorted with ascending shape, then sq
                 {}
 
-                // move elements at & after i right by 1
-                for (short ii = MAX_PIECES-1; ii > i; ii--)
-                    my_pieces[ii] = my_pieces[ii-1];
+                if (my_pieces[i].sq != -1)
+                    // move elements at & after i right by 1
+                    for (short ii = MAX_PIECES-1; ii > i; ii--)
+                        my_pieces[ii] = my_pieces[ii-1];
 
                 my_pieces[i].player = player;
                 my_pieces[i].shape = shape;
@@ -643,26 +690,18 @@ struct Engine
         root_depth = (glob_player == HUMAN);
         for (short player = BOT; player <= HUMAN; player++)
         {
-            // init KING_PTR, NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
+            // load KING_PTR, NBRQ_BEGIN, NBRQ_END, squares, hash, MAX_PHASE, phase, psv_opening, psv_endgame
             for (Piece &piece : pieces[player])
             {
                 short sq = piece.sq;
                 if (sq >= 0)
                 {
                     Shape &shape = piece.shape;
+                    squares[sq] = &piece;
 
                     if (shape == KING)
                         KING_PTR[player] = &piece;
 
-                    else if (shape == ROOK)
-                    {
-                        if (ROOKS_SQ_I[player][0] == -1)
-                            ROOKS_SQ_I[player][0] = sq;
-                        else
-                            ROOKS_SQ_I[player][1] = sq;
-                    }
-
-                    squares[sq] = &piece;
                     glob_hash ^= ZTABLE[player][shape][sq];
                     phase += SHAPE_PHASE[shape];
                     psv_opening[player] += PST_OPENING[player][shape][sq];
@@ -670,13 +709,6 @@ struct Engine
                 }
             }
         }
-
-        std::cout << "===========================================" << std::endl
-            << "              SIGMA4 CHESSBOT" << std::endl
-            << "              by RandomKerbal" << std::endl
-            << "===========================================" << std::endl << std::endl
-            << "Warning: En passant is not supported (no one cares anyway)." << std::endl
-            << "Starter: " << (glob_player ? "HUMAN" : "BOT") << std::endl << std::endl;
     }
 
     inline void add_psv(Player player, Shape shape, short sq)
@@ -731,12 +763,12 @@ struct Engine
             short rook_sq_i = NULL, rook_sq_f = NULL;
             if (sq_f < sq_i) // queenside
             {
-                rook_sq_i = ROOKS_SQ_I[player][Q_SIDE];
+                rook_sq_i = R_CASTLE_SQ[player][Q_SIDE];
                 rook_sq_f = sq_f + 1;
             }
             else // kingside
             {
-                rook_sq_i = ROOKS_SQ_I[player][K_SIDE];
+                rook_sq_i = R_CASTLE_SQ[player][K_SIDE];
                 rook_sq_f = sq_f - 1;
             }
             Piece *rook_sq_i_ptr = squares[rook_sq_i];
@@ -775,12 +807,12 @@ struct Engine
             short rook_sq_i = NULL, rook_sq_f = NULL;
             if (sq_f < sq_i) // queenside
             {
-                rook_sq_i = ROOKS_SQ_I[player][Q_SIDE];
+                rook_sq_i = R_CASTLE_SQ[player][Q_SIDE];
                 rook_sq_f = sq_f + 1;
             }
             else // kingside
             {
-                rook_sq_i = ROOKS_SQ_I[player][K_SIDE];
+                rook_sq_i = R_CASTLE_SQ[player][K_SIDE];
                 rook_sq_f = sq_f - 1;
             }
             Piece *rook_sq_f_ptr = squares[rook_sq_f];
@@ -1053,12 +1085,12 @@ struct Engine
             {
                 child_score = eval(child_hash, !player, depth+1, alpha, beta, is_NM_eval, is_PV_node,
                                    // child can castle previously && child player's rook not captured
-                                   child_can_castle_Q && moves.sq_f != ROOKS_SQ_I[!player][Q_SIDE],
-                                   child_can_castle_K && moves.sq_f != ROOKS_SQ_I[!player][K_SIDE],
+                                   child_can_castle_Q && moves.sq_f != R_CASTLE_SQ[!player][Q_SIDE],
+                                   child_can_castle_K && moves.sq_f != R_CASTLE_SQ[!player][K_SIDE],
 
                                    // I can castle previously && I didn't move KING && I didn't move ROOK of the given side
-                                   can_castle_Q && moves.shape_a != KING && moves.sq_i != ROOKS_SQ_I[player][Q_SIDE],
-                                   can_castle_K && moves.shape_a != KING && moves.sq_i != ROOKS_SQ_I[player][K_SIDE]
+                                   can_castle_Q && moves.shape_a != KING && moves.sq_i != R_CASTLE_SQ[player][Q_SIDE],
+                                   can_castle_K && moves.shape_a != KING && moves.sq_i != R_CASTLE_SQ[player][K_SIDE]
                                   );
                 has_child_score = true;
                 is_PV_node = false;
@@ -1103,7 +1135,7 @@ struct Engine
      * mate_type = 1 if bot is checkmated
      * mate_type = 2 if bot is stalemated
      */
-    void bot_move(Tag &tag, short &best_sq_i, short &best_sq_f, short &mate_type)
+    void eval_root(Tag &tag, short &best_sq_i, short &best_sq_f, short &mate_type)
     {
         move_history[0] = glob_hash;
 
@@ -1123,10 +1155,10 @@ struct Engine
             if (!is_checked(glob_player))
             {
                 child_score = eval(child_hash, !glob_player, 1, SHRT_MIN, SHRT_MAX, false, is_PV_node,
-                                   can_castles[!glob_player][Q_SIDE] && moves.sq_f != ROOKS_SQ_I[!glob_player][Q_SIDE],
-                                   can_castles[!glob_player][K_SIDE] && moves.sq_f != ROOKS_SQ_I[!glob_player][K_SIDE],
-                                   can_castles[glob_player][Q_SIDE] && moves.shape_a != KING && moves.sq_i != ROOKS_SQ_I[glob_player][Q_SIDE],
-                                   can_castles[glob_player][K_SIDE] && moves.shape_a != KING && moves.sq_i != ROOKS_SQ_I[glob_player][K_SIDE]
+                                   can_castles[!glob_player][Q_SIDE] && moves.sq_f != R_CASTLE_SQ[!glob_player][Q_SIDE],
+                                   can_castles[!glob_player][K_SIDE] && moves.sq_f != R_CASTLE_SQ[!glob_player][K_SIDE],
+                                   can_castles[glob_player][Q_SIDE] && moves.shape_a != KING && moves.sq_i != R_CASTLE_SQ[glob_player][Q_SIDE],
+                                   can_castles[glob_player][K_SIDE] && moves.shape_a != KING && moves.sq_i != R_CASTLE_SQ[glob_player][K_SIDE]
                                   );
                 has_child_score = true;
                 is_PV_node = false;
@@ -1259,26 +1291,28 @@ struct Engine
     }
     inline void update_glob_can_castle(short sq_i)
     {
-        can_castles[!glob_player][Q_SIDE] &= sq_i != ROOKS_SQ_I[!glob_player][Q_SIDE];
-        can_castles[!glob_player][K_SIDE] &= sq_i != ROOKS_SQ_I[!glob_player][K_SIDE];
-        can_castles[glob_player][Q_SIDE] &= squares[sq_i]->shape != KING && sq_i != ROOKS_SQ_I[glob_player][Q_SIDE];
-        can_castles[glob_player][K_SIDE] &= squares[sq_i]->shape != KING && sq_i != ROOKS_SQ_I[glob_player][K_SIDE];
+        can_castles[!glob_player][Q_SIDE] &= sq_i != R_CASTLE_SQ[!glob_player][Q_SIDE];
+        can_castles[!glob_player][K_SIDE] &= sq_i != R_CASTLE_SQ[!glob_player][K_SIDE];
+        can_castles[glob_player][Q_SIDE] &= squares[sq_i]->shape != KING && sq_i != R_CASTLE_SQ[glob_player][Q_SIDE];
+        can_castles[glob_player][K_SIDE] &= squares[sq_i]->shape != KING && sq_i != R_CASTLE_SQ[glob_player][K_SIDE];
     }
 };
 
-/**
- * IMPORTANT: Custom FEN must be validated by Chess.com!
- * Standard cofiguration: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq
- */
-Engine engine("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq");
-
 void console_play()
 {
-    short sq_i = NULL, sq_f = NULL, error_type = NULL, mate_type = NULL;
+    static Engine engine;
+    std::cout << "===========================================" << std::endl
+        << "              SIGMA4 CHESSBOT" << std::endl
+        << "              by RandomKerbal" << std::endl
+        << "===========================================" << std::endl << std::endl
+        << "Warning: En passant is not supported" << std::endl
+        << "Starter: " << (engine.glob_player ? "HUMAN" : "BOT") << std::endl << std::endl;
+
     Tag tag = IS_NORM;
+    short sq_i = NULL, sq_f = NULL, error_type = NULL, mate_type = NULL;
     if (engine.glob_player == BOT)
     {
-        engine.bot_move(tag, sq_i, sq_f, mate_type);
+        engine.eval_root(tag, sq_i, sq_f, mate_type);
         engine.update_glob_can_castle(sq_i);
         engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
         engine.glob_player = !engine.glob_player;
@@ -1302,7 +1336,7 @@ void console_play()
         engine.glob_player = !engine.glob_player;
         std::cout << std::endl;
 
-        engine.bot_move(tag, sq_i, sq_f, mate_type);
+        engine.eval_root(tag, sq_i, sq_f, mate_type);
         if (mate_type == 1)
         {
             std::cout << engine;
@@ -1323,8 +1357,67 @@ void console_play()
     }
 }
 
+void uci_play()
+{
+    static Engine engine;
+    std::cout << "id name SIGMA4" << std::endl
+        << "id author RandomKerbal" << std::endl
+        << "uciok" << std::endl;
+
+    std::string cmd = "";
+    Tag tag = IS_NORM;
+    short sq_i = NULL, sq_f = NULL, mate_type = NULL, i = NULL;
+
+    while (cmd != "quit")
+    {
+        i = 0;
+        std::getline(std::cin, cmd);
+
+        if (cmd == "isready")
+        {
+            std::cout << "readyok" << std::endl;
+        }
+        else if (cmd == "ucinewgame")
+        {
+            engine.reset();
+            engine.load();
+        }
+        else if (cmd.find("go") == i)
+        {
+            engine.eval_root(tag, sq_i, sq_f, mate_type);
+            std::cout << "bestmove ";
+
+            // convert 1D coordinate to algebraic coordinate
+            for (short sq : {sq_i, sq_f})
+                std::cout << file_of(sq) << rank_of(sq);
+
+            std::cout << std::endl;
+        }
+        else if (cmd.find("position") == i)
+        {
+            i += sizeof("position"); // no need +1 due to null terminator
+            engine.reset();
+            if (cmd.find("fen") == i)
+            {
+                i += sizeof("fen");
+                engine.load(cmd.substr(i).c_str());
+            }
+            else if (cmd.find("moves"))
+            {
+
+            }
+        }
+    }
+}
+
 int main()
 {
-    console_play();
+    std::string mode = "";
+    std::getline(std::cin, mode);
+    if (mode == "uci")
+        uci_play();
+    else
+        console_play();
+    
     return 0;
 }
