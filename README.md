@@ -4,5 +4,5 @@ The file ```chess_engine.cpp``` contains the entire code for the chess engine.
 The file ```robot.cpp``` contains the code for the chess engine and the robot movement.
 
 The chess engine can operate independently without the physical robot.
-  To play on the console, press [Enter] after launching the .exe
-  To play with the UCI protocol, input ```uci``` and press [Enter] after launching.
+- To play on the console, press [Enter] after launching the .exe
+- To play with the UCI protocol, input ```uci``` and press [Enter] after launching.
