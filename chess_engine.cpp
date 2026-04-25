@@ -1431,11 +1431,6 @@ void uci_play()
         {
             engine.eval_root(tag, sq_i, sq_f, mate_type);
             std::cout << "bestmove " << LAN_of(tag, sq_i, sq_f);
-            engine.update_glob_can_castle(sq_i);
-            engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
-            engine.glob_player = !engine.glob_player;
-            engine.eval_root(tag, sq_i, sq_f, mate_type);
-            std::cout << " ponder " << LAN_of(tag, sq_i, sq_f) << std::endl;
         }
         else if (cmd.find("position") == i)
         {
