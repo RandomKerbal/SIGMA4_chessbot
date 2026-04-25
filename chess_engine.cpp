@@ -6,13 +6,13 @@
 #include <cctype>
 #include <vector>
 
-const char *DEFAULT_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const std::string DEFAULT_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 const short MAX_DEPTH = 7,
             NM_R = 3,
             NM_DEPTH_INC = NM_R + 1,
             MAX_NM_DEPTH = MAX_DEPTH - NM_DEPTH_INC,
-            MAX_NUM_AXB = 26;
+            MAX_VCTM_CNT = 26;
 
 enum Player: short {
     BOT = 0, HUMAN = 1,
@@ -35,7 +35,14 @@ enum Side: bool {
 };
 
 enum Tag: short {
-    IS_NORM = 0, IS_PROMO = 1, IS_CASTLE = 2
+    IS_PROMO_N = 1, IS_PROMO_B = 2, IS_PROMO_R = 3, IS_PROMO_Q = 4, // same value as promoted shape
+    IS_CASTLE = 6,
+    IS_NORM = 7,
+};
+
+const char char_of[MAX_PLAYER][MAX_SHAPE] = {
+    { 'p', 'n', 'b', 'r', 'q', 'k' },
+    { 'P', 'N', 'B', 'R', 'Q', 'K' }
 };
 
 /**
@@ -168,12 +175,24 @@ inline short y_of(short sq)
 
 inline char file_of(short sq)
 {
-    return 'a' + x_of(sq);
+    return x_of(sq) + 'a';
 }
 
-inline short rank_of(short sq)
+inline char rank_of(short sq)
 {
-    return PLAY_WIDTH - y_of(sq);
+    return PLAY_WIDTH - y_of(sq) + '0';
+}
+
+inline std::string LAN_of(Tag tag, short sq_i, short sq_f)
+{
+    std::string LAN;
+    LAN += file_of(sq_i);
+    LAN += rank_of(sq_i);
+    LAN += file_of(sq_f);
+    LAN += rank_of(sq_f);
+    if (tag <= IS_PROMO_Q)
+        LAN += char_of[0][tag]; // 0 = lowercase
+    return LAN;
 }
 
 inline bool is_play_area(short sq)
@@ -194,12 +213,7 @@ struct Engine
 {
     friend std::ostream &operator<<(std::ostream& out, const Engine &engine)
     {
-        const char char_of[MAX_PLAYER][MAX_SHAPE] = {
-            { 'p', 'n', 'b', 'r', 'q', 'k' },
-            { 'P', 'N', 'B', 'R', 'Q', 'K' }
-        };
-        std::string TAB = "   ";
-
+        const std::string TAB = "   ";
         out << "Transposition Table:" << std::endl;
         short i = NULL;
         for (const TtableEntry &entry : engine.ttable)
@@ -219,8 +233,7 @@ struct Engine
 
         out << "hash:" << std::endl << TAB << engine.glob_hash << std::endl;
 
-        out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << MAX_PHASE << std::endl << 
-            "Total half-moves:" << std::endl << TAB << engine.root_depth << std::endl;
+        out << "Distance from endgame:" << std::endl << TAB << engine.phase << '/' << MAX_PHASE << std::endl;
 
         out << "Worth as opening:" << std::endl;
         for (short player = BOT; player <= HUMAN; player++)
@@ -274,15 +287,15 @@ struct Engine
         out << TAB << "+-------------BOT-------------+" << std::endl;
         for (short sq = 0; sq < AREA; sq++)
         {
-            if (x_of(sq) == PLAY_WIDTH) // sentinels
+            if (!is_play_area(sq)) // sentinels
             {
-                out << " . . | " << sq - 1 << std::endl;
+                out << " . . | " << std::endl;
                 sq++; // skip col 9
             }
             else
             {
                 if (x_of(sq) == 0)
-                    out << std::setw(2) << sq << " |";
+                    out << std::setw(2) << rank_of(sq) << " |";
 
                 Piece *piece = engine.squares[sq];
                 if (piece)
@@ -291,7 +304,10 @@ struct Engine
                     out << std::setw(3) << '_';
             }
         }
-        out << TAB << "+------------HUMAN------------+" << std::endl;
+        out << TAB << "+-------------YOU-------------+" << std::endl << TAB << ' ';
+        for (short i = 0; i < PLAY_WIDTH; i++)
+            out << std::setw(3) << file_of(i);
+        out << std::endl;
         return out;
     }
 
@@ -359,7 +375,7 @@ struct Engine
              * 
              * quiet_moves - see struct QuietMoves{}
              */
-            CaptureMoves moves[KING][MAX_SHAPE][MAX_NUM_AXB] = {{{}}};
+            CaptureMoves moves[KING][MAX_SHAPE][MAX_VCTM_CNT] = {{{}}};
             short moves_end[KING][MAX_SHAPE] = {{0}}, i_v = 0, i_a = 0, i = 0;
             std::vector<QuietMoves> quiet_moves;
 
@@ -369,7 +385,7 @@ struct Engine
                 {
                     short i_v = QUEEN - shape_v;
 
-                    if (moves_end[i_v][shape_a] >= MAX_NUM_AXB)
+                    if (moves_end[i_v][shape_a] >= MAX_VCTM_CNT)
                         std::cerr << "Error: moves[] array overflowed! Please contact developer." << std::endl;
 
                     moves[i_v][shape_a][moves_end[i_v][shape_a]++] = {tag, sq_i, sq_f, sq_f_ptr};
@@ -383,7 +399,7 @@ struct Engine
 
             void gen_MVVLVA_moves(Player player)
             {
-                quiet_moves.reserve(MAX_NUM_AXB);
+                quiet_moves.reserve(MAX_VCTM_CNT);
                 for (const Piece *sq_i_ptr = engine.pieces[player]; sq_i_ptr <= engine.KING_PTR[player]; sq_i_ptr++)
                 {
                     sq_i = sq_i_ptr->sq;
@@ -396,7 +412,7 @@ struct Engine
                             if (1 <= y_i && y_i <= 6)
                             {
                                 short dy = rel_forward(player), sq_y = sq_i + dy;
-                                bool is_promo = (y_i == 1 && player) || (y_i == 6 && !player);
+                                bool on_promo_row = (y_i == 1 && player) || (y_i == 6 && !player);
 
                                 // capture moves
                                 for (short dx = -1; dx <= 1; dx += 2)
@@ -408,8 +424,8 @@ struct Engine
                                         Shape shape_v = sq_f_ptr->shape;      
                                         if (sq_f_ptr->player != player && shape_v != KING)
                                         {
-                                            if (is_promo)
-                                                MVVLVA_insert(IS_PROMO, QUEEN, sq_f_ptr); // capture promotion best -> treat as PAWN x QUEEN
+                                            if (on_promo_row)
+                                                MVVLVA_insert(IS_PROMO_Q, QUEEN, sq_f_ptr); // treat as PAWN x QUEEN since capture + promotion is best 
                                             else
                                                 MVVLVA_insert(IS_NORM, shape_v, sq_f_ptr);
                                         }
@@ -420,13 +436,13 @@ struct Engine
                                 sq_f = sq_y;
                                 if (!engine.squares[sq_f])
                                 {
-                                    if (is_promo)
-                                        MVVLVA_insert(IS_PROMO, ROOK, nullptr); // quiet promotion 2nd best -> treat as PAWN x ROOK
+                                    if (on_promo_row)
+                                        MVVLVA_insert(IS_PROMO_Q, ROOK, nullptr); // treat as PAWN x ROOK since quiet + promotion 2nd best
                                     else
                                     {
                                         quiet_push();
 
-                                        if ((y_i == 1 && !player) || (y_i == 6 && player)) // can step 2
+                                        if ((y_i == 1 && !player) || (y_i == 6 && player)) // on start row
                                         {
                                             sq_f += dy;
                                             if (!engine.squares[sq_f])
@@ -563,56 +579,82 @@ struct Engine
     TtableEntry ttable[TABLE_SZ]; // Transposition Table
 
     short root_depth; // move counter, but only update when bot move
-    unsigned long long move_history[MAX_DEPTH];
+    unsigned long long visited[MAX_DEPTH];
 
     short phase; // sum of SHAPE_PHASE of all current pieces
     short psv_opening[MAX_PLAYER];
     short psv_endgame[MAX_PLAYER];
 
+    inline void parse_LAN(const std::string &LAN, Tag &tag, short &sq_i, short &sq_f)
+    {
+        sq_i = (PLAY_WIDTH - (LAN[1] - '0'))*WIDTH + (LAN[0] - 'a');
+        sq_f = (PLAY_WIDTH - (LAN[3] - '0'))*WIDTH + (LAN[2] - 'a');
+        if (LAN.length() == 5)
+        {
+            switch(toupper(LAN[4]))
+            {
+                case 'N':
+                    tag = IS_PROMO_N;
+                    break;
+                case 'B':
+                    tag = IS_PROMO_B;
+                    break;
+                case 'R':
+                    tag = IS_PROMO_R;
+                    break;
+                case 'Q':
+                    tag = IS_PROMO_Q;
+                    break;
+            }
+        }
+        else if (squares[sq_i]->shape == KING && abs(sq_f - sq_i) == 2)
+            tag = IS_CASTLE;
+        else
+            tag = IS_NORM;
+    }
+
     /**
      * IMPORTANT: Custom FEN must be validated beforehand!
      * Last 2 fields of FEN (en passant targets, move counters) are ignored.
      */
-    Engine(const char *FEN = DEFAULT_FEN)
+    Engine()
     {
-        reset();
-        load(FEN);
+        clear();
+        load();
     }
 
-    void reset()
+    void clear()
     {
         for (short player = BOT; player <= HUMAN; player++)
         {
             for (Piece &piece : pieces[player])
                 piece = Piece();
             KING_PTR[player] = nullptr;
-            can_castles[player][Q_SIDE] = false;
-            can_castles[player][K_SIDE] = false;
+            for (short side = Q_SIDE; side <= K_SIDE; side++)
+                can_castles[player][side] = false;
             psv_opening[player] = 0;
             psv_endgame[player] = 0;
         }
         for (Piece *&sq : squares)
             sq = nullptr;
-        glob_player = BOT;
+        glob_player = HUMAN;
         glob_hash = 0;
         root_depth = 0;
-        for (unsigned long long &hash : move_history)
+        for (unsigned long long &hash : visited)
             hash = 0;
         phase = 0;
     }
 
-    void load(const char *FEN = DEFAULT_FEN)
+    void load(const std::string &FEN = DEFAULT_FEN)
     {
-        // load pieces[]
-        const char *ch_ptr = FEN;
         char ch = NULL;
-        short sq = 0;
+        short sq = 0, i = 0;
         Player player;
         Shape shape;
         // FEN field 1
-        for (; *ch_ptr && *ch_ptr != ' '; ch_ptr++)
+        for (; FEN[i] != ' '; i++)
         {
-            ch = *ch_ptr;
+            ch = FEN[i];
             if (isdigit(ch))
                 sq += ch - '0';
 
@@ -660,30 +702,25 @@ struct Engine
             else if (ch == '/')
                 sq += SENTL_WIDTH;
         }
+        i++;
+
         // FEN field 2
-        if (*ch_ptr)
-        {
-            ch_ptr++;
-            glob_player = (*ch_ptr == 'w') ? HUMAN : BOT;
-            ch_ptr++;
-        }
+        glob_player = (FEN[i] == 'w') ? HUMAN : BOT;
+        i += 2;
+
         // FEN field 3
-        if (*ch_ptr)
+        for (; FEN[i] != ' '; i++)
         {
-            ch_ptr++;
-            for (; *ch_ptr && *ch_ptr != ' '; ch_ptr++)
+            ch = FEN[i];
+            player = Player(bool(isupper(ch)));
+            switch (toupper(ch))
             {
-                ch = *ch_ptr;
-                player = Player(bool(isupper(ch)));
-                switch (toupper(ch))
-                {
-                    case 'Q':
-                        can_castles[player][Q_SIDE] = true;
-                        break;
-                    case 'K':
-                        can_castles[player][K_SIDE] = true;
-                        break;
-                }
+                case 'Q':
+                    can_castles[player][Q_SIDE] = true;
+                    break;
+                case 'K':
+                    can_castles[player][K_SIDE] = true;
+                    break;
             }
         }
 
@@ -696,7 +733,7 @@ struct Engine
                 short sq = piece.sq;
                 if (sq >= 0)
                 {
-                    Shape &shape = piece.shape;
+                    const Shape &shape = piece.shape;
                     squares[sq] = &piece;
 
                     if (shape == KING)
@@ -744,12 +781,13 @@ struct Engine
         }
 
         // promotion
-        if (tag == IS_PROMO)
+        if (tag <= IS_PROMO_Q)
         {
-            sq_i_ptr->shape = QUEEN;
-            phase += SHAPE_PHASE[QUEEN]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
-            add_psv(player, QUEEN, sq_f);
-            hash ^= ZTABLE[player][QUEEN][sq_f];
+            // tag = promoted shape
+            sq_i_ptr->shape = Shape(tag);
+            phase += SHAPE_PHASE[tag]; // no need to subtract SHAPE_PHASE[PAWN] that is 0
+            add_psv(player, Shape(tag), sq_f);
+            hash ^= ZTABLE[player][tag][sq_f];
         }
         else
         {
@@ -801,6 +839,16 @@ struct Engine
     {
         Piece *sq_f_ptr = squares[sq_f];
 
+        // demotion
+        if (tag <= IS_PROMO_Q)
+        {
+            sq_f_ptr->shape = PAWN;
+            phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
+            del_psv(player, QUEEN, sq_f);
+        }
+        else
+            del_psv(player, shape, sq_f);
+
         // uncastle
         if (tag == IS_CASTLE)
         {
@@ -823,16 +871,6 @@ struct Engine
             add_psv(player, ROOK, rook_sq_i);
             del_psv(player, ROOK, rook_sq_f);
         }
-
-        // demotion
-        if (tag == IS_PROMO)
-        {
-            sq_f_ptr->shape = PAWN;
-            phase -= SHAPE_PHASE[QUEEN]; // no need to add SHAPE_PHASE[PAWN] that is 0
-            del_psv(player, QUEEN, sq_f);
-        }
-        else
-            del_psv(player, shape, sq_f);
 
         // restore capture
         if (prev_sq_f_ptr)
@@ -921,17 +959,17 @@ struct Engine
     inline short static_eval()
     {
         short net_psv_opening = psv_opening[MAXER] - psv_opening[MINER],
-            net_psv_endgame = psv_endgame[MAXER] - psv_endgame[MINER];
+              net_psv_endgame = psv_endgame[MAXER] - psv_endgame[MINER];
 
         return net_psv_endgame - (net_psv_endgame - net_psv_opening)*std::min(phase, MAX_PHASE)/MAX_PHASE; // linear interpolation
     }
 
-    inline bool is_repeat(const unsigned long long &hash, short depth)
+    inline bool is_repeat(const unsigned long long hash, short depth)
     {
-        return (depth >= 3 && hash == move_history[depth-3]); // experimentally determined no need to check lower/higher depths
+        return (depth >= 3 && hash == visited[depth-3]); // experimentally determined no need to check lower/higher depths
     }
 
-    inline void into_ttable(const unsigned long long &hash, short score, short total_depth)
+    inline void into_ttable(const unsigned long long hash, short score, short total_depth)
     {
         TtableEntry &entry = ttable[hash % TABLE_SZ];
         if (total_depth >= entry.total_depth) // if bucket collision, keep the more recent and deeper search
@@ -947,7 +985,7 @@ struct Engine
         return (player == MAXER) ? SHRT_MIN + depth : SHRT_MAX - depth; // earlier checkmate preferred over later
     }
 
-    short QS_eval(const unsigned long long &hash, Player player, short alpha, short beta)
+    short QS_eval(const unsigned long long hash, Player player, short alpha, short beta)
     {
         short score = static_eval();
 
@@ -1034,7 +1072,7 @@ struct Engine
         if (depth == MAX_DEPTH)
             return QS_eval(hash, player, alpha, beta);
 
-        move_history[depth] = hash;
+        visited[depth] = hash;
         bool is_checked_i = is_checked(player);
         short child_score = NULL;
 
@@ -1046,7 +1084,7 @@ struct Engine
                 child_score = eval(hash^Z_PLAYER, !player, depth + NM_DEPTH_INC, beta-1, beta, true, false, child_can_castle_Q, child_can_castle_K, can_castle_Q, can_castle_K);
                 if (child_score >= beta)
                 {
-                    move_history[depth] = NULL;
+                    visited[depth] = NULL;
                     return beta;
                 }
             }
@@ -1055,7 +1093,7 @@ struct Engine
                 child_score = eval(hash^Z_PLAYER, !player, depth + NM_DEPTH_INC, alpha, alpha+1, true, false, child_can_castle_Q, child_can_castle_K, can_castle_Q, can_castle_K);
                 if (child_score <= alpha)
                 {
-                    move_history[depth] = NULL;
+                    visited[depth] = NULL;
                     return alpha;
                 }
             }
@@ -1117,12 +1155,12 @@ struct Engine
                 if (alpha >= beta)
                 {
                     into_ttable(hash, score, total_depth);
-                    move_history[depth] = NULL;
+                    visited[depth] = NULL;
                     return score;
                 }
             }
         }
-        move_history[depth] = NULL;
+        visited[depth] = NULL;
         if (score == worst_score && !is_checked_i) // stalemate
             score = 0;
         into_ttable(hash, score, total_depth);
@@ -1137,7 +1175,7 @@ struct Engine
      */
     void eval_root(Tag &tag, short &best_sq_i, short &best_sq_f, short &mate_type)
     {
-        move_history[0] = glob_hash;
+        visited[0] = glob_hash;
 
         bool is_checked_i = is_checked(glob_player), is_PV_node = true, has_child_score = NULL;
         short child_score = NULL, worst_score = worst_scores(glob_player, 0), score = worst_score;
@@ -1146,7 +1184,7 @@ struct Engine
                                   !is_checked_i && can_castles[glob_player][Q_SIDE],
                                   !is_checked_i && can_castles[glob_player][K_SIDE]
                                  );
-        std::cout << "Possible {square_i, square_f, score}:" << std::endl;
+        std::cout << "Possible {move, score}:" << std::endl;
         while (moves.next() && score != worst_scores(!glob_player, 0))
         {
             has_child_score = false;
@@ -1168,7 +1206,7 @@ struct Engine
 
             if (has_child_score)
             {
-                std::cout << "{" << moves.sq_i << ", " << moves.sq_f << ", " << child_score << "}," << std::endl;
+                std::cout << "{" << LAN_of(moves.tag, moves.sq_i, moves.sq_f) << ", " << child_score << "}," << std::endl;
                 if (glob_player == MAXER && child_score > score)
                 {
                     tag = moves.tag;
@@ -1197,16 +1235,6 @@ struct Engine
         root_depth += 2; // 1 for human, 1 for bot
     }
 
-    Tag id_tag(short sq_i, short sq_f)
-    {
-        short y_i = y_of(sq_i);
-        if (squares[sq_i]->shape == PAWN && (y_i == 1 && glob_player) || (y_i == 6 && !glob_player))
-            return IS_PROMO;
-        else if (squares[sq_i]->shape == KING && abs(sq_f - sq_i) == 2)
-            return IS_CASTLE;
-        return IS_NORM;
-    }
-
     /**
      * @return whether move is valid.
      * 0: valid
@@ -1218,6 +1246,7 @@ struct Engine
      * 6: blocked path
      * 7: is in check after move
      * 8: is in check before castling
+     * 9: illegal promotion
      */
     short validate(Tag tag, short sq_i, short sq_f)
     {
@@ -1228,33 +1257,48 @@ struct Engine
         if (!sq_i_ptr)
             return 3;
 
-        if (sq_i_ptr->player != glob_player)
+        else if (sq_i_ptr->player != glob_player)
             return 4;
 
         else if (sq_f_ptr && (sq_f_ptr->player == glob_player || sq_f_ptr->shape == KING))
             return 5;
 
-        short dx = abs(x_of(sq_f) - x_of(sq_i)),
-              dy = abs(y_of(sq_f) - y_of(sq_i)),
+        short y_i = y_of(sq_i),
+              y_f = y_of(sq_f),
+              dx = abs(x_of(sq_f) - x_of(sq_i)),
+              dy = abs(y_f - y_i),
               d_cheby = std::max(dx, dy);
-
+        bool is_promo = tag <= IS_PROMO_Q;
         Shape shape = sq_i_ptr->shape;
         if (shape == PAWN)
         {
-            if (rel_forward(glob_player)*(sq_f - sq_i) < 0) // backward
+            bool on_promo_row = (y_i == 1 && glob_player) || (y_i == 6 && !glob_player),
+                 on_start_row = (y_i == 1 && !glob_player) || (y_i == 6 && glob_player);
+
+            if (rel_forward(glob_player)*(y_f - y_i) < 0) // backward
                 return 1;
 
-            if (!sq_f_ptr)
-            {
-                if (dx != 0)
-                    return 1;
+            else if (!is_promo && on_promo_row)
+                return 9;
 
-                if (dy > 1 + (y_of(sq_i) == 1 || y_of(sq_i) == 6)) // if pawn at starting line dy > 1+(1), else dy>1+(0)
-                    return 1;
-            }
-            else if (dx != 1 || dy != 1) // && not empty
+            else if (is_promo && !on_promo_row)
+                return 9;
+
+            else if (!sq_f_ptr && dx)
+                return 1;
+            
+            else if (sq_f_ptr && !dx)
+                return 5;
+            
+            else if (dy > 2 && on_start_row)
+                return 1;
+            
+            else if (dy > 1 && !on_start_row)
                 return 1;
         }
+        else if (is_promo)
+            return 9;
+
         else if (shape == KNIGHT && (dx != 1 || dy != 2) && (dx != 2 || dy != 1))
             return 1;
 
@@ -1302,57 +1346,57 @@ void console_play()
 {
     static Engine engine;
     std::cout << "===========================================" << std::endl
-        << "              SIGMA4 CHESSBOT" << std::endl
+        << "            SIGMA4 UCI CHESSBOT" << std::endl
         << "              by RandomKerbal" << std::endl
         << "===========================================" << std::endl << std::endl
-        << "Warning: En passant is not supported" << std::endl
+        << "En passant is not supported!" << std::endl << std::endl
+        << "What is the UCI long algebraic notation (e.g. e2e4, g7g8q)?" << std::endl
+        << "https://en.wikipedia.org/wiki/Algebraic_notation_(chess)#Long_algebraic_notation" << std::endl << std::endl
         << "Starter: " << (engine.glob_player ? "HUMAN" : "BOT") << std::endl << std::endl;
 
+    std::string LAN;
     Tag tag = IS_NORM;
     short sq_i = NULL, sq_f = NULL, error_type = NULL, mate_type = NULL;
-    if (engine.glob_player == BOT)
-    {
-        engine.eval_root(tag, sq_i, sq_f, mate_type);
-        engine.update_glob_can_castle(sq_i);
-        engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
-        engine.glob_player = !engine.glob_player;
-        std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl << std::endl;
-    }
     while (!mate_type)
     {
-        std::cout << engine;
-        do
-        {
-            std::cout << "Initial and final 1D coordinates: ";
-            std::cin >> sq_i >> sq_f;
-            tag = engine.id_tag(sq_i, sq_f);
-            error_type = engine.validate(tag, sq_i, sq_f);
-            if (error_type)
-                std::cout << "Invalid move, broken rule #" << error_type << std::endl;
-        }
-        while (error_type);
-        engine.update_glob_can_castle(sq_i);
-        engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
-        engine.glob_player = !engine.glob_player;
-        std::cout << std::endl;
-
-        engine.eval_root(tag, sq_i, sq_f, mate_type);
-        if (mate_type == 1)
+        if (engine.glob_player) // HUMAN
         {
             std::cout << engine;
-            std::cout << "You won!" << std::endl;
-        }
-        else if (mate_type == 2)
-        {
-            std::cout << engine;
-            std::cout << "Draw!" << std::endl;
-        }
-        else
-        {
+            do
+            {
+                std::cout << "Input UCI long algebraic notation: ";
+                std::getline(std::cin, LAN);
+                engine.parse_LAN(LAN, tag, sq_i, sq_f);
+                error_type = engine.validate(tag, sq_i, sq_f);
+                if (error_type)
+                    std::cout << "Invalid move, broken rule #" << error_type << std::endl;
+            }
+            while (error_type);
             engine.update_glob_can_castle(sq_i);
             engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
             engine.glob_player = !engine.glob_player;
-            std::cout << std::endl << "Chosen: {" << sq_i << ", " << sq_f << "}" << std::endl << std::endl;
+            std::cout << std::endl;
+        }
+        else // BOT
+        {
+            engine.eval_root(tag, sq_i, sq_f, mate_type);
+            if (mate_type == 1)
+            {
+                std::cout << engine;
+                std::cout << "You won!" << std::endl;
+            }
+            else if (mate_type == 2)
+            {
+                std::cout << engine;
+                std::cout << "Draw!" << std::endl;
+            }
+            else
+            {
+                engine.update_glob_can_castle(sq_i);
+                engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
+                engine.glob_player = !engine.glob_player;
+                std::cout << std::endl << "Chosen: " << LAN_of(tag, sq_i, sq_f) << std::endl << std::endl;
+            }
         }
     }
 }
@@ -1360,13 +1404,14 @@ void console_play()
 void uci_play()
 {
     static Engine engine;
-    std::cout << "id name SIGMA4" << std::endl
+    std::cout << "id name SIGMA^4" << std::endl
         << "id author RandomKerbal" << std::endl
         << "uciok" << std::endl;
 
-    std::string cmd = "";
+    std::string cmd, LAN;
     Tag tag = IS_NORM;
-    short sq_i = NULL, sq_f = NULL, mate_type = NULL, i = NULL;
+    short sq_i = NULL, sq_f = NULL, mate_type = NULL, i = NULL, ii = NULL;
+    const short FEN_FIELD_CNT = 6;
 
     while (cmd != "quit")
     {
@@ -1379,42 +1424,61 @@ void uci_play()
         }
         else if (cmd == "ucinewgame")
         {
-            engine.reset();
+            engine.clear();
             engine.load();
         }
         else if (cmd.find("go") == i)
         {
             engine.eval_root(tag, sq_i, sq_f, mate_type);
-            std::cout << "bestmove ";
-
-            // convert 1D coordinate to algebraic coordinate
-            for (short sq : {sq_i, sq_f})
-                std::cout << file_of(sq) << rank_of(sq);
-
-            std::cout << std::endl;
+            std::cout << "bestmove " << LAN_of(tag, sq_i, sq_f) << std::endl;
         }
         else if (cmd.find("position") == i)
         {
             i += sizeof("position"); // no need +1 due to null terminator
-            engine.reset();
+            engine.clear();
+
             if (cmd.find("fen") == i)
             {
                 i += sizeof("fen");
-                engine.load(cmd.substr(i).c_str());
-            }
-            else if (cmd.find("moves"))
-            {
+                ii = i;
+                for (short c = 0; c < FEN_FIELD_CNT; c++)
+                    ii = cmd.find(' ', ii + 1);
 
+                engine.load(cmd.substr(i, ii-i));
+                i = ii + 1;
+            }
+            else if (cmd.find("startpos") == i)
+            {
+                i += sizeof("startpos");
+                engine.load();
+            }
+            else
+                continue;
+
+            if (cmd.find("moves") == i)
+            {
+                i += sizeof("moves");
+                do
+                {
+                    ii = cmd.find(' ', i);
+                    engine.parse_LAN((ii == std::string::npos) ? cmd.substr(i) : cmd.substr(i, ii-i), tag, sq_i, sq_f);
+                    engine.update_glob_can_castle(sq_i);
+                    engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
+                    engine.glob_player = !engine.glob_player;
+                    i = ii + 1;
+                } while (ii != std::string::npos);
             }
         }
+        else if (cmd == "d")
+            std::cout << engine;
     }
 }
 
 int main()
 {
-    std::string mode = "";
-    std::getline(std::cin, mode);
-    if (mode == "uci")
+    std::string cmd;
+    std::getline(std::cin, cmd);
+    if (cmd == "uci")
         uci_play();
     else
         console_play();
