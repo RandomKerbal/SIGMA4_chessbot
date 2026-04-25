@@ -425,7 +425,7 @@ struct Engine
                                         if (sq_f_ptr->player != player && shape_v != KING)
                                         {
                                             if (on_promo_row)
-                                                MVVLVA_insert(IS_PROMO_Q, QUEEN, sq_f_ptr); // treat as PAWN x QUEEN since capture + promotion is best 
+                                                MVVLVA_insert(IS_PROMO_Q, QUEEN, sq_f_ptr); // treat as PAWN x QUEEN since capture promotion is best 
                                             else
                                                 MVVLVA_insert(IS_NORM, shape_v, sq_f_ptr);
                                         }
@@ -437,7 +437,7 @@ struct Engine
                                 if (!engine.squares[sq_f])
                                 {
                                     if (on_promo_row)
-                                        MVVLVA_insert(IS_PROMO_Q, ROOK, nullptr); // treat as PAWN x ROOK since quiet + promotion 2nd best
+                                        MVVLVA_insert(IS_PROMO_Q, PAWN, nullptr); // treat as PAWN x PAWN since quiet promotion 3rd best. 2nd best is capture
                                     else
                                     {
                                         quiet_push();
@@ -1184,7 +1184,7 @@ struct Engine
                                   !is_checked_i && can_castles[glob_player][Q_SIDE],
                                   !is_checked_i && can_castles[glob_player][K_SIDE]
                                  );
-        std::cout << "Possible {move, score}:" << std::endl;
+        // std::cout << "Possible {move, score}:" << std::endl;
         while (moves.next() && score != worst_scores(!glob_player, 0))
         {
             has_child_score = false;
@@ -1206,7 +1206,7 @@ struct Engine
 
             if (has_child_score)
             {
-                std::cout << "{" << LAN_of(moves.tag, moves.sq_i, moves.sq_f) << ", " << child_score << "}," << std::endl;
+                // std::cout << "{" << LAN_of(moves.tag, moves.sq_i, moves.sq_f) << ", " << child_score << "}," << std::endl;
                 if (glob_player == MAXER && child_score > score)
                 {
                     tag = moves.tag;
@@ -1430,7 +1430,12 @@ void uci_play()
         else if (cmd.find("go") == i)
         {
             engine.eval_root(tag, sq_i, sq_f, mate_type);
-            std::cout << "bestmove " << LAN_of(tag, sq_i, sq_f) << std::endl;
+            std::cout << "bestmove " << LAN_of(tag, sq_i, sq_f);
+            engine.update_glob_can_castle(sq_i);
+            engine.glob_hash = engine.move(engine.glob_hash, engine.glob_player, tag, engine.squares[sq_i]->shape, sq_i, sq_f);
+            engine.glob_player = !engine.glob_player;
+            engine.eval_root(tag, sq_i, sq_f, mate_type);
+            std::cout << " ponder " << LAN_of(tag, sq_i, sq_f) << std::endl;
         }
         else if (cmd.find("position") == i)
         {
