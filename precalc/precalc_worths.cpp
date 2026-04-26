@@ -5,10 +5,9 @@
 const short PLAY_WIDTH = 8, WIDTH = PLAY_WIDTH + 2, AREA = PLAY_WIDTH*WIDTH;
 
 enum Player: short {
-    BLACK = 0, WHITE = 1,
+    BOT = 0, HUMAN = 1,
     MAX_PLAYER = 2,
-    MINER = BLACK, MAXER = WHITE,
-    BOT = BLACK, HUMAN = WHITE,
+    MINER = BOT, MAXER = HUMAN
 };
 
 enum Shape: short {
@@ -165,8 +164,8 @@ void init_black_worths()
         for (short sq = 0; sq < AREA; sq++)
         {
             short sq_mirror = (PLAY_WIDTH-1 - y_of(sq))*WIDTH + x_of(sq);
-            WORTH_OPENING[BLACK][shape][sq] = WORTH_OPENING[WHITE][shape][sq_mirror];
-            WORTH_ENDGAME[BLACK][shape][sq] = WORTH_ENDGAME[WHITE][shape][sq_mirror];
+            WORTH_OPENING[BOT][shape][sq] = WORTH_OPENING[HUMAN][shape][sq_mirror];
+            WORTH_ENDGAME[BOT][shape][sq] = WORTH_ENDGAME[HUMAN][shape][sq_mirror];
 
         }
     }
@@ -176,7 +175,7 @@ void write_fout(std::ofstream &fout, short arr[MAX_PLAYER][MAX_SHAPE][AREA], con
 {
     fout << "const short " << arr_name << "[MAX_PLAYER][MAX_SHAPE][AREA] = {";
     {
-        for (short player = BLACK; player <= WHITE; player++)
+        for (short player = BOT; player <= HUMAN; player++)
         {
             fout << "{";
             for (short shape = PAWN; shape < MAX_SHAPE; shape++)

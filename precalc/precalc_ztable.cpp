@@ -5,7 +5,7 @@
     #endif
 #endif
 #define PCG_LITTLE_ENDIAN 1
-#include "include/pcg_random.hpp"
+#include "../include/pcg_random.hpp"
 
 pcg32 rng32(0);
 pcg64 rng(0);
@@ -14,11 +14,15 @@ enum SHAPE: short {
     PAWN = 0, KNIGHT = 1, BISHOP = 2, ROOK = 3, QUEEN = 4, KING = 5,
     MAX_SHAPE = 6
 };
-enum PLAYER: short {
-    BLACK = 0, WHITE = 1,
+
+enum Player: short {
+    BOT = 0, HUMAN = 1,
     MAX_PLAYER = 2,
-    MINER = BLACK, MAXER = WHITE,
-    BOT = BLACK, HUMAN = WHITE,
+    MINER = BOT, MAXER = HUMAN
+};
+
+enum Side: bool {
+    Q_SIDE = 0, K_SIDE = 1
 };
 
 const short HEIGHT = 8, WIDTH = HEIGHT + 2, AREA = HEIGHT*WIDTH;
@@ -48,9 +52,8 @@ void write_fout(std::ofstream &fout, bool is_32)
     }
 
     fout << datatype << "ZTABLE[MAX_PLAYER][MAX_SHAPE][AREA] = {";
-    for (short player = BLACK; player <= WHITE; player++)
+    for (short player = BOT; player <= HUMAN; player++)
     {
-        // Ztable
         fout << "{";
         for (short shape = PAWN; shape < MAX_SHAPE; shape++)
         {
@@ -67,7 +70,17 @@ void write_fout(std::ofstream &fout, bool is_32)
         }
         fout << "},";
     }
-    fout << "};\n" << datatype << "Z_IS_BLACK = " << (is_32 ? rng32() : rng()) << suffix << ";";
+    fout << "};\n";
+    fout << datatype << "ZCASTLE[MAX_PLAYER][2] = {";
+    for (short player = BOT; player <= HUMAN; player++)
+    {
+        fout << "{";
+        for (short side = Q_SIDE; side <= K_SIDE; side++)
+            fout << (is_32 ? rng32() : rng()) << suffix << ",";
+        fout << "},";   
+    }
+    fout << "};\n";
+    fout << datatype << "ZPLAYER = " << (is_32 ? rng32() : rng()) << suffix << ";";
 }
 
 int main()
